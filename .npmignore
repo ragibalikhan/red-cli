@@ -1,0 +1,13 @@
+.git/
+.github/
+tests/
+docs/
+*.md
+.eslintrc.json
+vitest.config.js
+node_modules/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example

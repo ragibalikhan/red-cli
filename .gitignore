@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+
+# Environment & Config
+.env
+.env.local
+.env.*.local
+*.local
+
+# User config (global)
+.red/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.tsbuildinfo
+
+# Test
+coverage/
+.nyc_output/
+
+# Temp
+tmp/
+temp/
+.playground/
+
+# Secrets (generic patterns)
+*secret*
+*apikey*
+*api_key*
+*.pem
+*.key
+
+# Ignore analytics data
+analytics.json
+
+# Package lock (optional - use pnpm-lock or yarn.lock)
+# package-lock.json
