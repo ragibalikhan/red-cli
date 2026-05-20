@@ -143,7 +143,7 @@ Auto-detects your project:
 **Prerequisites:** Node.js 18+, API key for at least one provider.
 
 ```bash
-npm install -g red-cli
+npm install -g redai-cli
 ```
 
 Or from source:
