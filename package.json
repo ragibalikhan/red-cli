@@ -25,10 +25,10 @@
     "agentic",
     "auto-agent"
   ],
-  "homepage": "https://github.com/red-cli/red-cli",
-  "bugs": {
-    "url": "https://github.com/red-cli/red-cli/issues"
-  },
+  "homepage": "https://github.com/ragibalikhan/red-cli",
+"bugs": {
+  "url": "https://github.com/ragibalikhan/red-cli/issues"
+},
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
@@ -50,8 +50,7 @@
     "eslint": "^9.0.0",
     "vitest": "^2.0.0"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/red-cli/red-cli"
-  }
+ "repository": {
+  "type": "git",
+  "url": "https://github.com/ragibalikhan/red-cli"
 }
