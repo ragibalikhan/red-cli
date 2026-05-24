@@ -39,8 +39,18 @@ const MODEL_LIMITS = {
 
   // NVIDIA
   'z-ai/glm-5.1': { context: 1000000, maxOutput: 8192 },
-  'deepseek-ai/deepseek-r1': { context: 64000, maxOutput: 8192 },
-  'deepseek-ai/deepseek-v3': { context: 64000, maxOutput: 8192 },
+  'deepseek-ai/deepseek-v4-pro': { context: 64000, maxOutput: 8192 },
+  'deepseek-ai/deepseek-v4-flash': { context: 64000, maxOutput: 8192 },
+  'moonshotai/kimi-k2.6': { context: 256000, maxOutput: 8192 },
+  'qwen/qwen3-coder-480b-a35b-instruct': { context: 256000, maxOutput: 8192 },
+  'qwen/qwen3-next-80b-a3b-instruct': { context: 256000, maxOutput: 8192 },
+  'minimaxai/minimax-m2.7': { context: 200000, maxOutput: 8192 },
+  'minimaxai/minimax-m2.5': { context: 200000, maxOutput: 8192 },
+  'meta/llama-3.3-70b-instruct': { context: 128000, maxOutput: 8192 },
+  'mistralai/mixtral-8x7b-instruct': { context: 32000, maxOutput: 4096 },
+  'nvidia/llama-3.1-nemotron-ultra-253b-v1': { context: 128000, maxOutput: 8192 },
+  'nvidia/llama-3.3-nemotron-super-49b-v1.5': { context: 128000, maxOutput: 8192 },
+  'nvidia/nvidia-nemotron-nano-9b-v2': { context: 128000, maxOutput: 8192 },
 
   // Ollama (typically small)
   'llama3': { context: 8192, maxOutput: 4096 },
@@ -56,15 +66,32 @@ let anthropicTokenizer = null;
 
 // Get model limits
 export function getModelLimits(modelName) {
+  if (!modelName) return MODEL_LIMITS.default;
+
   // Try exact match first
   if (MODEL_LIMITS[modelName]) {
     return MODEL_LIMITS[modelName];
   }
 
-  // Try prefix match
+  const nameLower = modelName.toLowerCase();
+  const shortName = modelName.split('/').pop()?.toLowerCase() || '';
+
+  // Try prefix/substring match
   for (const [key, value] of Object.entries(MODEL_LIMITS)) {
-    if (modelName.includes(key) || key.includes(modelName.split('/').pop())) {
+    const keyLower = key.toLowerCase();
+    if (nameLower.includes(keyLower) || keyLower.includes(shortName)) {
       return value;
+    }
+  }
+
+  // Broader match: check each part of the model name against keys
+  const parts = nameLower.split(/[/\-_ ]/);
+  for (const part of parts) {
+    if (part.length < 3) continue;
+    for (const [key, value] of Object.entries(MODEL_LIMITS)) {
+      if (key.toLowerCase().includes(part)) {
+        return value;
+      }
     }
   }
 

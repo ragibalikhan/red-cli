@@ -243,6 +243,18 @@ export class Agent {
           }
 
           if (toolUses.length > 0) {
+            // Tool call loop guard: if same tool calls repeat, stop
+            const sig = toolUses.map(t => `${t.name}:${JSON.stringify(t.input || {})}`).join('|');
+            if (this._lastToolSig && this._lastToolSig === sig) {
+              console.log(chalk.yellow('\n  ⚠️  Tool call loop detected (same tools as previous round). Stopping.\n'));
+              if (responseText && nativeToolsSupported) {
+                this.messages.push({ role: 'assistant', content: responseText });
+              }
+              this._lastToolSig = null;
+              return;
+            }
+            this._lastToolSig = sig;
+
             if (toolDepth >= maxToolRounds) {
               if (responseText && nativeToolsSupported) {
                 this.messages.push({ role: 'assistant', content: responseText });
@@ -281,6 +293,20 @@ export class Agent {
             return;
           }
 
+          // Dedup guard: detect repetitive responses and stop
+          if (responseText && responseText.length > 100) {
+            const lastN = this.messages.filter(m => m.role === 'assistant').slice(-3);
+            const repeats = lastN.filter(m =>
+              typeof m.content === 'string' && m.content.length > 100 &&
+              m.content.substring(0, 80) === responseText.substring(0, 80)
+            ).length;
+            if (repeats >= 2) {
+              console.log(chalk.yellow('\n  ⚠️  Detected repetitive response. Stopping to avoid loop.\n'));
+              this.messages.push({ role: 'assistant', content: responseText || '' });
+              return;
+            }
+          }
+
           // Save assistant response into conversation history so follow-up questions keep context.
           this.messages.push({ role: 'assistant', content: responseText || '' });
           return;
@@ -311,8 +337,20 @@ export class Agent {
         return;
       }
       console.log(chalk.yellow(`\n  ⚠️  Provider error (${this._consecutiveProviderErrors}/3): ${err.message}`));
+
+      // Compact if context is large before retry to prevent compounding timeouts
+      if (this.messages.length > 4 && this.tokenManager) {
+        const systemMsg = { role: 'system', content: this.buildSystemPrompt(getModeTools(this.tools, this.mode)) };
+        const allM = [systemMsg, ...this.messages];
+        const ctxStats = this.tokenManager.getStats(allM);
+        if (ctxStats.percent > 70) {
+          console.log(chalk.dim('  📦 Auto-compacting before retry...'));
+          await this.handleCompact();
+        }
+      }
+
       console.log(chalk.dim('  Retrying...\n'));
-      await this.runLoop(spinner, { ...options, toolDepth });
+      await this.runLoop(spinner, { ...options, toolDepth: 0 });
     }
   }
 

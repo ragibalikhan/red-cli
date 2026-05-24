@@ -1,7 +1,7 @@
 {
   "name": "redai-cli",
-  "version": "0.3.0",
-  "description": "An open-source agentic AI coding assistant for the terminal",
+  "version": "0.4.0",
+  "description": "An open-source autonomous cybersecurity testing CLI for the terminal",
   "type": "module",
   "bin": {
     "red": "bin/red.js"

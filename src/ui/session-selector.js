@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { existsSync, readFileSync, statSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, statSync, readdirSync, openSync, readSync, closeSync } from 'fs';
 import { join } from 'path';
 
 export class SessionSelector {
@@ -34,11 +34,16 @@ export class SessionSelector {
       let messageCount = 0;
 
       try {
-        const content = readFileSync(p, 'utf-8');
+        // Read only first 2KB for listing preview — avoids reading multi-MB files
+        const fd = openSync(p, 'r');
+        const buf = Buffer.alloc(2048);
+        const bytesRead = readSync(fd, buf, 0, 2048, 0);
+        closeSync(fd);
+        const head = buf.toString('utf-8', 0, bytesRead);
 
         if (f.endsWith('.md')) {
           // Extract first non-header line as preview
-          const lines = content.split('\n');
+          const lines = head.split('\n');
           for (const line of lines) {
             const trimmed = line.trim();
             if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('```')) {
@@ -46,11 +51,11 @@ export class SessionSelector {
               break;
             }
           }
-          // Count message blocks (looks for role markers)
-          messageCount = (content.match(/\*\*\w+:\*\*/g) || []).length / 2;
+          // Count message blocks from header (## User / ## Assistant)
+          messageCount = (head.match(/^## /gm) || []).length / 2;
         } else {
-          // JSON format
           try {
+            const content = readFileSync(p, 'utf-8');
             const data = JSON.parse(content);
             messageCount = Array.isArray(data) ? data.length : 0;
             if (Array.isArray(data) && data.length > 0) {

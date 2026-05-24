@@ -17,6 +17,7 @@ import { runDoctor } from './doctor.js';
 import { createAnalytics } from './analytics.js';
 import { createDiffReview } from './diff-review.js';
 import { renderUserPrompt, renderHelp, renderHistory, renderError, renderSuccess, clearScreen } from './renderer.js';
+import { getModelLimits } from './token-manager.js';
 import { SlashMenu } from './ui/slash-menu.js';
 import { SessionSelector } from './ui/session-selector.js';
 import { showWelcome } from './ui/welcome.js';
@@ -352,7 +353,7 @@ export async function startRepl(cfg) {
           } else {
             try {
               await agent.run(trimmed);
-              printTokenBar();
+              await printTokenBar();
               periodicAutoSave();
             } catch (err) {
               console.error(renderError(err.message));
@@ -431,14 +432,28 @@ function printBanner() {
   console.log('');
 }
 
-function printTokenBar() {
+async function printTokenBar() {
   const stats = analytics.getSessionStats();
-  const maxTokens = config.maxTokens || 8096;
-  const percent = Math.min(100, Math.round((stats.tokensIn + stats.tokensOut) / maxTokens * 100));
-  const filled = '█'.repeat(Math.floor(percent / 5));
-  const empty = '░'.repeat(20 - Math.floor(percent / 5));
+  const limits = getModelLimits(config.model || 'default');
+  const contextLimit = limits?.context || 32000;
 
-  console.log(chalk.dim(`\n  tokens ${filled}${empty} ${(stats.tokensIn + stats.tokensOut) / 1000}k • ~$${stats.cost.toFixed(2)} • ${stats.toolCalls} tools\n`));
+  // Get actual current context usage from agent's tokenManager
+  let contextUsed = 0;
+  try {
+    if (agent && agent.tokenManager && agent.messages) {
+      const systemMsg = { role: 'system', content: agent.buildSystemPrompt([]) };
+      const allM = [systemMsg, ...agent.messages];
+      const ctx = await agent.tokenManager.getStats(allM);
+      contextUsed = ctx.used || 0;
+    }
+  } catch {}
+
+  const ctxPercent = Math.min(100, Math.round((contextUsed || stats.tokensIn) / contextLimit * 100));
+  const filled = '█'.repeat(Math.floor(ctxPercent / 5));
+  const empty = '░'.repeat(20 - Math.floor(ctxPercent / 5));
+
+  const totalTokens = stats.tokensIn + stats.tokensOut;
+  console.log(chalk.dim(`\n  ctx ${filled}${empty} ${(contextUsed / 1000).toFixed(0)}k/${(contextLimit / 1000).toFixed(0)}k • $${stats.cost.toFixed(2)} • ${stats.toolCalls} tools • ${(totalTokens / 1000).toFixed(0)}k session`));
 }
 
 async function handleCommand(cmd) {
