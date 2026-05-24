@@ -34,6 +34,8 @@ function loadAnalytics() {
     sessions: [],
     totalTokensIn: 0,
     totalTokensOut: 0,
+    totalCacheCreationIn: 0,
+    totalCacheReadIn: 0,
     toolCalls: {},
     modelUsage: {},
     startDate: new Date().toISOString()
@@ -53,6 +55,8 @@ export class Analytics {
       startTime: new Date().toISOString(),
       tokensIn: 0,
       tokensOut: 0,
+      cacheCreationIn: 0,
+      cacheReadIn: 0,
       toolCalls: [],
       model: null,
       provider: null
@@ -60,13 +64,29 @@ export class Analytics {
   }
 
   startSession(model, provider) {
-    this.currentSession.model = model;
-    this.currentSession.provider = provider;
+    this.currentSession = {
+      id: Date.now().toString(),
+      startTime: new Date().toISOString(),
+      tokensIn: 0,
+      tokensOut: 0,
+      cacheCreationIn: 0,
+      cacheReadIn: 0,
+      toolCalls: [],
+      model,
+      provider
+    };
   }
 
   addTokens(input, output) {
     this.currentSession.tokensIn += input;
     this.currentSession.tokensOut += output;
+  }
+
+  addProviderUsage({ inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens }) {
+    this.currentSession.tokensIn += inputTokens;
+    this.currentSession.tokensOut += outputTokens;
+    this.currentSession.cacheCreationIn += cacheCreationInputTokens;
+    this.currentSession.cacheReadIn += cacheReadInputTokens;
   }
 
   addToolCall(toolName) {
@@ -85,6 +105,8 @@ export class Analytics {
     this.data.sessions.push(this.currentSession);
     this.data.totalTokensIn += this.currentSession.tokensIn;
     this.data.totalTokensOut += this.currentSession.tokensOut;
+    this.data.totalCacheCreationIn += this.currentSession.cacheCreationIn;
+    this.data.totalCacheReadIn += this.currentSession.cacheReadIn;
 
     if (this.currentSession.model) {
       if (!this.data.modelUsage[this.currentSession.model]) {
@@ -136,6 +158,8 @@ export class Analytics {
 
     let totalTokensIn = 0;
     let totalTokensOut = 0;
+    let totalCacheCreationIn = 0;
+    let totalCacheReadIn = 0;
     let totalDuration = 0;
     const toolCounts = {};
     const modelCounts = {};
@@ -143,6 +167,8 @@ export class Analytics {
     for (const session of relevantSessions) {
       totalTokensIn += session.tokensIn;
       totalTokensOut += session.tokensOut;
+      totalCacheCreationIn += session.cacheCreationIn || 0;
+      totalCacheReadIn += session.cacheReadIn || 0;
       totalDuration += session.duration || 0;
 
       for (const tool of (session.toolCalls || [])) {
@@ -166,6 +192,8 @@ export class Analytics {
       totalTime: totalDuration,
       tokensIn: totalTokensIn,
       tokensOut: totalTokensOut,
+      cacheCreationIn: totalCacheCreationIn,
+      cacheReadIn: totalCacheReadIn,
       cost: totalCost,
       tools: toolCounts,
       models: modelCounts
@@ -174,12 +202,31 @@ export class Analytics {
 
   displaySessionUsage() {
     const stats = this.getSessionStats();
+    const session = this.currentSession;
 
     console.log(chalk.bold('\n📊 Current Session'));
     console.log(chalk.dim(`  Tokens in: ${stats.tokensIn.toLocaleString()}`));
     console.log(chalk.dim(`  Tokens out: ${stats.tokensOut.toLocaleString()}`));
     console.log(chalk.dim(`  Tool calls: ${stats.toolCalls}`));
     console.log(chalk.dim(`  Est. cost: ~$${stats.cost.toFixed(4)}`));
+
+    if (session.cacheCreationIn > 0 || session.cacheReadIn > 0) {
+      const totalCache = session.cacheCreationIn + session.cacheReadIn;
+      const hitRate = totalCache > 0 ? (session.cacheReadIn / totalCache) * 100 : 0;
+
+      const isAnthropic = session.provider === 'anthropic' || (session.model && /^claude/i.test(session.model));
+      let saved = 0;
+      if (isAnthropic) {
+        saved = (session.cacheCreationIn / 1000000) * 1.25 + (session.cacheReadIn / 1000000) * 0.10;
+      } else {
+        saved = (session.cacheReadIn / 1000000) * 0.50;
+      }
+
+      console.log(chalk.dim(`  Cache write: ${session.cacheCreationIn.toLocaleString()}`));
+      console.log(chalk.dim(`  Cache read:  ${session.cacheReadIn.toLocaleString()}`));
+      console.log(chalk.dim(`  Hit rate:    ${hitRate.toFixed(1)}%`));
+      console.log(chalk.dim(`  💰 Saved:    ~$${saved.toFixed(4)}`));
+    }
     console.log();
   }
 
@@ -220,6 +267,19 @@ export class Analytics {
       console.log(chalk.cyan('│   ') + chalk.dim('(none)'));
     }
 
+    if (usage.cacheCreationIn > 0 || usage.cacheReadIn > 0) {
+      const totalCache = usage.cacheCreationIn + usage.cacheReadIn;
+      const hitRate = totalCache > 0 ? (usage.cacheReadIn / totalCache) * 100 : 0;
+      const saved = (usage.cacheCreationIn / 1000000) * 1.25 + (usage.cacheReadIn / 1000000) * 0.10;
+
+      console.log(chalk.cyan('│'));
+      console.log(chalk.cyan('│  📦 Prompt Caching'));
+      console.log(chalk.cyan('│') + chalk.dim(`   Write:     ${usage.cacheCreationIn.toLocaleString()}`));
+      console.log(chalk.cyan('│') + chalk.dim(`   Read:      ${usage.cacheReadIn.toLocaleString()}`));
+      console.log(chalk.cyan('│') + chalk.dim(`   Hit rate:  ${hitRate.toFixed(1)}%`));
+      console.log(chalk.cyan('│') + chalk.dim(`   💰 Saved:  ~$${saved.toFixed(4)}`));
+    }
+
     console.log(chalk.cyan('╰') + '─'.repeat(54) + '╯\n');
   }
 
@@ -228,6 +288,8 @@ export class Analytics {
       sessions: [],
       totalTokensIn: 0,
       totalTokensOut: 0,
+      totalCacheCreationIn: 0,
+      totalCacheReadIn: 0,
       toolCalls: {},
       modelUsage: {},
       startDate: new Date().toISOString()

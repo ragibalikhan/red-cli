@@ -1,24 +1,39 @@
-# Red CLI
+# Red CLI — Cybersecurity CLI
 
-> An open-source **agentic AI coding assistant** and **security testing platform** for the terminal.
+> An open-source **autonomous cybersecurity testing platform** for the terminal. Find vulnerabilities, exploit them, and prove impact.
 
 [![npm](https://img.shields.io/npm/v/red-cli)](https://www.npmjs.com/package/red-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js 18+](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org/)
 
-Combines the power of **7 AI providers** and **40+ models** with autonomous execution modes, comprehensive security tools, and smart project awareness — all from your terminal.
+Combines **7 AI providers** and **40+ models** with autonomous penetration testing, vulnerability scanning, exploitation tooling, and smart intent detection — all from your terminal.
 
-[Features](#features) · [Installation](#installation) · [Quick Start](#quick-start) · [Models](#supported-models) · [Commands](#command-reference) · [Security](#security-testing-platform) · [Configuration](#configuration)
+[Features](#features) · [Installation](#installation) · [Quick Start](#quick-start) · [Modes](#modes) · [Commands](#command-reference) · [Configuration](#configuration)
 
 ---
 
 ## What is Red CLI?
 
-Red CLI is a terminal-native AI assistant that brings enterprise-grade coding capabilities and penetration testing tools to your command line. Whether you need to build applications, run security audits, or automate complex tasks — Red has you covered.
+Red CLI is a terminal-native AI penetration testing assistant. It auto-detects your intent from plain English — type "scan example.com" and it switches to scan mode, runs nmap, looks up CVEs, and reports findings. Type "exploit that SQLi" and it generates payloads and tests them.
 
 ---
 
 ## Features
+
+### 🛡️ Cybersecurity-Focused Modes
+
+Intent-based mode auto-detection — just describe what you want to do:
+
+| Mode | Purpose |
+|------|---------|
+| `recon` | **Default.** Reconnaissance, enumeration, port scanning, subdomain discovery, fingerprinting |
+| `scan` | Vulnerability scanning, CVE lookup, nmap/nuclei/nikto analysis |
+| `exploit` | Exploitation, payload generation (XSS/SQLi/LFI/SSRF/CMDi), PoC verification |
+| `report` | Penetration test report generation with evidence and remediation |
+| `osint` | Passive OSINT — web search, DNS lookups, public data only |
+| `audit` | Security code audit — read-only source code vulnerability analysis |
+
+Auto-detection example: `"scan example.com for open ports"` → automatically switches to `scan` mode.
 
 ### 🤖 Multi-Provider AI Support (7 Providers, 40+ Models)
 
@@ -32,109 +47,43 @@ Red CLI is a terminal-native AI assistant that brings enterprise-grade coding ca
 | **Ollama** | Llama3, Codestral, Mistral, Phi3 | Free (local) |
 | **OpenRouter** | Any OpenRouter model | Varies |
 
----
-
-### 🛡️ Security Testing Platform
-
-Full penetration testing toolkit built-in:
-
-- **Reconnaissance** — Passive/active recon, port scanning, technology detection
-- **Vulnerability Scanning** — OWASP Top 10, SANS Top 25, PCI-DSS, NIST CSF
-- **Exploitation** — XSS, SQL Injection, LFI, SSRF, Command Injection, CORS testing
-- **Accessibility Audits** — VPAT/WCAG 2.1/508 compliance checking
-- **Secret Scanning** — Detect API keys, tokens, and credentials in code
-- **Bug Finding** — Logic bugs, security bugs, reliability issues
-- **CVE Lookup** — Real-time CVE database queries
-- **Scope Management** — Authorized target tracking for compliance
-
-**Security Commands**: `/pentest`, `/scan`, `/recon`, `/exploit`, `/secrets`, `/bugs`, `/vpat`, `/cve`
-
----
-
-### ⚡ Autonomous Execution
-
-**Auto Mode** — Let Red complete complex tasks autonomously:
-- Built-in task planner
-- Loop detection & safety guardrails
-- Progress tracking
-- Intelligent completion detection
-
-**Plan Mode** — Generate structured step-by-step plans before execution
-
----
-
-### 🧠 Memory & Learning
-
-- **Global Memory** — Remember preferences across sessions
-- **Project Memory** — Store architecture decisions and patterns
-- **Auto-learning** — Learns from your code patterns automatically
-
----
-
-### 📋 Task Queue
-
-- Queue multiple tasks for sequential or parallel execution
-- Security task auto-detection
-- Failure handling: retry, skip, or abort
-
----
-
-### 💾 Checkpoints & Rollback
-
-- Create snapshots before risky operations
-- Git stash integration
-- One-command rollback to any previous state
-
----
-
-### 🎯 Modes
-
-| Mode | Description |
-|------|-------------|
-| `code` | Default. Full tool access for development. |
-| `review` | Read-only code analysis, no writes. |
-| `ask` | Pure Q&A with no side effects. |
-| `devops` | Shell, git, and docker focused. |
-| `docs` | Documentation writing. |
-| `commit` | One-shot commit message generation. |
-
----
-
-### 🛠️ Built-in Tools (16+)
+### 🔍 Built-in Security Tools (25+)
 
 | Tool | Description |
 |------|-------------|
-| `bash` | Shell commands with safety & live output |
-| `read_file` / `write_file` | File operations |
-| `search_files` | Regex search across files |
-| `edit_file` | Surgical find-and-replace |
-| `git` | Safe git operations |
-| `http_request` | API testing |
-| `run_tests` | Auto-detect and run test suites |
-| `code_analysis` | ESLint, Pylint integration |
-| `remember` / `recall` | Persistent memory |
-| + more | ... |
+| `port_scan` | Nmap-based port/service scanning (quick/full/service modes) |
+| `dns_lookup` | DNS record resolution (A, AAAA, MX, NS, TXT, CNAME) |
+| `cve_search` | CVE database lookup via NVD API + GitHub Advisory fallback |
+| `payload_gen` | Payload generation for XSS, SQLi, LFI, SSRF, CMDi, SSTI |
+| `fingerprint` | HTTP technology fingerprinting (server, cookies, JS frameworks) |
+| `subdomain_enum` | DNS brute force subdomain discovery |
+| `bash` | Shell commands with risk classification and safety confirmation |
+| `web_search` | DuckDuckGo web search |
+| `web_fetch` | URL content extraction |
+| `install_tool` | Auto-install security tools (nmap, nikto, subfinder, etc.) |
+| `exploit` | Quick exploitation testing (XSS, SQLi, LFI, ports, brute) |
 
----
+### 🧠 Autonomous Execution
+
+**Auto Mode** (`/auto`) — Let Red complete complex pentest tasks autonomously:
+- Built-in task planner
+- Loop detection & safety guardrails
+- Progress tracking
+- Goal-based completion detection
+
+### 💾 Memory & Learning
+
+- **Global Memory** — Remember findings across sessions
+- **Project Memory** — Store scan results and exploit chains
+- **Auto-learning** — Learns from your testing patterns
 
 ### 🔒 Safety Features
 
+- Scope-based target authorization (`/scope add example.com`)
 - Destructive command confirmation
 - Workspace enforcement
-- Configurable blocked commands list
-- Scope-based authorization for pentest targets
-- Auto checkpoints before autonomous mode runs
+- Configurable blocked commands
 - Risk classification for all shell commands
-
----
-
-### 💡 Smart Project Context
-
-Auto-detects your project:
-- **Language** — Node.js, Python, Go, Rust, and more
-- **Framework** — React, Next.js, Django, FastAPI, and more
-- **Test runner** — Jest, Vitest, pytest
-- **Package manager** — npm, yarn, poetry
 
 ---
 
@@ -158,86 +107,103 @@ cd red-cli && npm install && npm link
 ## Quick Start
 
 ```bash
-# Interactive REPL
+# Interactive REPL (starts in recon mode)
 red
 
-# One-shot question
-red "explain this function"
+# Scan a target for vulnerabilities
+red "scan example.com for open ports"
 
-# Autonomous task execution
-red --auto "build a REST API with auth"
+# Full autonomous penetration test
+red --auto "pentest https://target.com"
 
-# Security scan
-red security scan target.com
+# Generate XSS payloads
+red "generate xss payloads"
 
-# Full penetration test
-red security pentest example.com
+# Look up CVEs for a component
+red "cve search nginx 1.18"
+
+# Subdomain enumeration
+red "find subdomains for example.com"
+
+# Generate a pentest report
+red "generate report of findings"
 
 # Use a specific model
-red --model gemini-2.5-flash "write tests"
-
-# Review mode (read-only)
-red --mode review "review this code"
+red --model gemini-2.5-flash "scan example.com"
 ```
 
 ---
 
-## Supported Models
+## Modes
 
-### Anthropic
+Red auto-detects your intent from your input — but you can also switch manually:
 
-| Model | Context | Pricing |
-|-------|---------|---------|
-| claude-sonnet-4-20250729 | 200K | $3/$15 per Mtok |
-| claude-opus-4-20250729 | 200K | $15/$75 per Mtok |
-| claude-haiku-4-20250729 | 200K | $1/$5 per Mtok |
+| Command | Switches to |
+|---------|-------------|
+| `/mode recon` | Reconnaissance & enumeration |
+| `/mode scan` | Vulnerability scanning |
+| `/mode exploit` | Exploitation & payloads |
+| `/mode report` | Report generation |
+| `/mode osint` | Passive OSINT only |
+| `/mode audit` | Code security audit |
 
-### OpenAI
+---
 
-| Model | Context | Pricing |
-|-------|---------|---------|
-| gpt-4o | 128K | $5/$15 per Mtok |
-| gpt-4o-mini | 128K | $0.15/$0.60 per Mtok |
-| gpt-4-turbo | 128K | $10/$30 per Mtok |
+## Command Reference
 
-### Google Gemini
+### General
 
-| Model | Context | Pricing |
-|-------|---------|---------|
-| gemini-2.5-pro | 1M | $1.25/$5 per Mtok |
-| gemini-2.5-flash | 1M | $0.35/$0.70 per Mtok |
-| gemini-2.5-flash-lite | 1M | $0.175/$0.35 per Mtok |
-| gemini-2.0-flash | 1M | Free tier |
+| Command | Description |
+|---------|-------------|
+| `/exit`, `/quit` | Exit the CLI |
+| `/clear` | Clear conversation history |
+| `/history` | Show last 10 messages |
+| `/help` | Show all commands |
+| `/mode <name>` | Switch mode (recon/scan/exploit/report/osint/audit) |
+| `/model` | Open model selector UI |
+| `/provider <name>` | Switch AI provider |
 
-### OpenCode Zen (Free Models)
+### Security Testing
 
-| Model | Context |
-|-------|---------|
-| minimax-m2.5-free | 200K |
-| deepseek-v4-flash-free | 200K |
-| nemotron-3-super-free | 200K |
+| Command | Description |
+|---------|-------------|
+| `/pentest <target>` | Full autonomous penetration test |
+| `/scan <target>` | Vulnerability scan |
+| `/recon <target>` | Reconnaissance & enumeration |
+| `/exploit <type> <target>` | Quick exploitation (xss, sqli, lfi, ports, etc.) |
+| `/cve <CVE-ID>` | Look up a specific CVE |
+| `/cves <component> [version]` | Search CVEs for a component |
+| `/secrets [path]` | Scan for leaked secrets |
+| `/bugs [path]` | Find logic/security bugs |
+| `/report` | Generate penetration test report |
+| `/scope add <target>` | Authorize a target for testing |
+| `/targets` | List all scanned targets |
+| `/tech` | Show discovered technologies |
+| `/continue <target>` | Continue from previous scan |
 
-### OpenCode Zen (Paid Models)
+### Planning & Auto
 
-| Model | Context | Pricing |
-|-------|---------|---------|
-| qwen3.6-plus-free | 262K | Free (limited) |
-| glm-5-free | 1M | Free (limited) |
-| qwen3-coder-480b | 262K | $0.45/$1.50 per Mtok |
-| gpt-5.1-codex-mini | 200K | $0.25/$2 per Mtok |
-| gpt-5.1-codex | 200K | $1.07/$8.50 per Mtok |
-| gpt-5.2 | 200K | $1.75/$14 per Mtok |
+| Command | Description |
+|---------|-------------|
+| `/plan <task>` | Create and execute a plan |
+| `/run <task>` | Run directly without planning |
+| `/auto <task>` | Run in autonomous mode |
+| `/goal <condition>` | Run with goal-based completion |
 
-### NVIDIA Hosted Models
+### Utilities
 
-| Model | Provider | Context |
-|-------|----------|---------|
-| GLM-5.1 | Z.ai | 1M |
-| DeepSeek-V4 Pro | DeepSeek | 64K |
-| DeepSeek-V4 Flash | DeepSeek | 64K |
-| Kimi K2.6 | Moonshot | 256K |
-| Qwen3 Coder 480B | Qwen | 256K |
-| Llama 3.3 70B | Meta | 128K |
+| Command | Description |
+|---------|-------------|
+| `/doctor` | Run diagnostics |
+| `/usage` | Show usage statistics |
+| `/tokens` | Show current session tokens |
+| `/install-tools` | Install security tools (nmap, nikto, etc.) |
+| `/compact` | Compact conversation to save tokens |
+| `/parallel task1 \| task2` | Run tasks in parallel |
+| `/memory` | Show all memories |
+| `/save [file]` | Save session to file |
+| `/resume` | Resume a previous session |
+| `/plugins` | List installed plugins |
 
 ---
 
@@ -256,110 +222,30 @@ Create `~/.red/config.json`:
 
 ```json
 {
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-20250729",
+  "provider": "openai",
+  "model": "gpt-4o",
+  "mode": "recon",
   "apiKeys": {
     "anthropic": "sk-ant-...",
     "openai": "sk-...",
     "gemini": "...",
-    "openrouter": "sk-or-...",
     "nvidia": "nvapi-...",
     "opencode": "sk-..."
   },
-  "mode": "code",
-  "effort": "high"
+  "effort": "high",
+  "mcpServers": []
 }
 ```
 
 ### Environment Variables
 
 ```bash
-# Linux/macOS
 export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENAI_API_KEY="sk-..."
 export GEMINI_API_KEY="..."
 export NVIDIA_API_KEY="nvapi-..."
 export OPENCODE_API_KEY="sk-..."
-
-# Windows PowerShell
-$env:ANTHROPIC_API_KEY = "sk-ant-..."
 ```
-
----
-
-## Command Reference
-
-### General
-
-| Command | Description |
-|---------|-------------|
-| `/exit`, `/quit` | Exit the CLI |
-| `/clear` | Clear conversation history |
-| `/history` | Show last 10 messages |
-| `/help` | Show all commands |
-
-### Provider & Model
-
-| Command | Description |
-|---------|-------------|
-| `/model` | Open model selector UI |
-| `/provider <name>` | Switch provider |
-| `/mode <name>` | Switch mode |
-| `/effort <level>` | Set effort (high/medium/low/min) |
-
-### Plan & Auto Mode
-
-| Command | Description |
-|---------|-------------|
-| `/plan <task>` | Create and execute a plan |
-| `/run <task>` | Run directly without planning |
-| `/auto <task>` | Run in autonomous mode |
-
-### Security
-
-| Command | Description |
-|---------|-------------|
-| `/pentest <target>` | Full penetration test |
-| `/scan <target>` | Vulnerability scan |
-| `/recon <target>` | Reconnaissance |
-| `/exploit <target>` | Exploitation testing |
-| `/secrets` | Scan for leaked secrets |
-| `/bugs` | Find logic/security bugs |
-| `/vpat` | WCAG/508 accessibility audit |
-| `/cve <id>` | CVE lookup |
-
-### Task Queue
-
-| Command | Description |
-|---------|-------------|
-| `/queue add <task>` | Add task to queue |
-| `/queue run` | Run all queued tasks |
-| `/queue list` | Show queued tasks |
-| `/queue clear` | Clear queue |
-
-### Checkpoints
-
-| Command | Description |
-|---------|-------------|
-| `/checkpoint` | Create a checkpoint |
-| `/checkpoints` | List all checkpoints |
-| `/rollback` | Rollback to last checkpoint |
-
-### Memory
-
-| Command | Description |
-|---------|-------------|
-| `/memory` | Show all memories |
-| `/memory set <key> <value>` | Set a project memory |
-| `/memory forget <key>` | Delete a memory |
-
-### Diagnostics
-
-| Command | Description |
-|---------|-------------|
-| `/doctor` | Run Red Doctor diagnostics |
-| `/usage` | Show usage statistics |
-| `/tokens` | Show current session tokens |
 
 ---
 
@@ -371,20 +257,12 @@ red [options] [message]
 Options:
   --version              Show version
   --model <name>         Set model
-  --mode <name>          Set mode
+  --mode <name>          Set mode (recon/scan/exploit/report/osint/audit)
   --provider <name>      Set provider
   --effort <level>       Set effort level (high/medium/low/min)
   --no-tools             Disable tools (ask mode)
   --auto                 Run in autonomous mode
   --max-iter <n>         Max iterations for auto mode
-
-Commands:
-  red config get <key>   Get a config value
-  red config set <key>   Set a config value
-  red doctor             Run diagnostics
-  red queue add <task>   Add task to queue
-  red queue run          Run all queued tasks
-  red security <cmd>     Security testing commands
 ```
 
 ---

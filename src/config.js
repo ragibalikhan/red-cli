@@ -35,14 +35,20 @@ function loadEnvFile() {
 
 loadEnvFile();
 
-const DEFAULT_SYSTEM_PROMPT = `You are Red, an autonomous agentic CLI for authorized tasks.
+const DEFAULT_SYSTEM_PROMPT = `You are Red, an autonomous cybersecurity testing CLI.
+
+CORE MISSION:
+- Find vulnerabilities, exploit them, and prove impact
+- Document every finding with evidence (output, screenshots, timestamps)
+- Stay within authorized scope at all times
 
 RULES:
 - Use tools to execute commands - do NOT describe what to run
 - Show actual results, not bash code blocks
-- Be concise
+- Before exploiting, verify the vulnerability exists
+- Log all steps for the final report
 
-AVAILABLE: bash, read_file, write_file, list_directory, search_files, edit_file
+AVAILABLE: bash, read_file, write_file, list_directory, search_files, edit_file, web_search, web_fetch, port_scan, dns_lookup, cve_search, payload_gen, fingerprint, subdomain_enum
 
 MODE: {mode}
 CWD: {cwd}`;
@@ -53,7 +59,7 @@ export const DEFAULTS = {
   maxTokens: 8096,
   effort: 'high',
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
-  mode: 'code',
+  mode: 'recon',
   theme: 'dark',
   autoConfirmBash: false,
   blockedCommands: ['rm -rf /', 'mkfs', 'dd if='],
@@ -61,7 +67,8 @@ export const DEFAULTS = {
   historySize: 1000,
   streamOutput: true,
   baseUrl: null,
-  extraBody: {}
+  extraBody: {},
+  mcpServers: []
 };
 
 export const PROVIDERS = {
@@ -151,44 +158,44 @@ export function normalizeNvidiaModel(model) {
 }
 
 export const MODES = {
-  CODE: 'code',
-  REVIEW: 'review',
-  ASK: 'ask',
-  DEVOPS: 'devops',
-  DOCS: 'docs',
-  COMMIT: 'commit'
+  RECON: 'recon',
+  SCAN: 'scan',
+  EXPLOIT: 'exploit',
+  REPORT: 'report',
+  OSINT: 'osint',
+  AUDIT: 'audit'
 };
 
 export const MODE_CONFIGS = {
-  code: {
-    description: 'Default. Full tool access. Focuses on writing and editing code.',
+  recon: {
+    description: 'Default. Full toolkit. Reconnaissance, enumeration, OSINT, service fingerprinting, and attack surface mapping.',
     tools: 'all',
-    promptAddon: ''
+    promptAddon: 'You are in recon mode. Focus on information gathering: port scanning, DNS enumeration, subdomain discovery, technology fingerprinting, and service identification. Document every open port, service version, and technology found.'
   },
-  review: {
-    description: 'Read-only tools only. Reviews code, suggests improvements, no writes.',
-    tools: ['read_file', 'list_directory', 'search_files'],
-    promptAddon: 'You are in review mode. Only read files and provide analysis. Do not modify any files.'
-  },
-  ask: {
-    description: 'No tools. Pure Q&A mode. Fast, cheap, no side effects.',
-    tools: [],
-    promptAddon: 'You are in ask mode. Answer questions concisely. Do not use any tools.'
-  },
-  devops: {
-    description: 'Focused on shell, git, docker, CI. Extra bash permissions.',
+  scan: {
+    description: 'Vulnerability scanning. Run scanners (nmap, nuclei, nikto), analyze results, identify CVEs.',
     tools: 'all',
-    promptAddon: 'You are in devops mode. Focus on shell commands, git operations, docker, and CI/CD tasks.'
+    promptAddon: 'You are in vulnerability scanning mode. Focus on identifying vulnerabilities: run vulnerability scanners, look up CVEs, analyze scan results, and prioritize findings by severity. Do not exploit without explicit user request.'
   },
-  docs: {
-    description: 'Focused on writing/improving documentation and README files.',
-    tools: ['read_file', 'write_file', 'list_directory', 'search_files'],
-    promptAddon: 'You are in documentation mode. Focus on writing and improving documentation, README files, and code comments.'
+  exploit: {
+    description: 'Exploitation. Find and run exploits, generate payloads, attempt exploitation with proof of concept.',
+    tools: 'all',
+    promptAddon: 'You are in exploitation mode. Find and run exploits against discovered vulnerabilities. Generate payloads (XSS, SQLi, LFI, SSRF, command injection). Verify exploitation with proof of concept. Document every successful exploit.'
   },
-  commit: {
-    description: 'One-shot: reads git diff, writes a conventional commit message, exits.',
-    tools: ['git', 'bash'],
-    promptAddon: 'You are in commit mode. Read the git diff, write a conventional commit message, and exit.'
+  report: {
+    description: 'Reporting. Document findings, generate penetration test reports with evidence and PoC.',
+    tools: ['read_file', 'write_file', 'list_directory', 'search_files', 'web_fetch', 'git'],
+    promptAddon: 'You are in reporting mode. Generate professional penetration test reports with: executive summary, methodology, findings with severity, proof of concept evidence, remediation recommendations, and appendices.'
+  },
+  osint: {
+    description: 'Passive OSINT only. Web search, DNS lookups, information gathering — no direct target contact.',
+    tools: ['web_search', 'web_fetch', 'bash', 'read_file'],
+    promptAddon: 'You are in OSINT mode. Passive information gathering only. Do not scan, connect to, or interact with target systems directly. Use web search, DNS lookups, and public data sources only.'
+  },
+  audit: {
+    description: 'Security code audit. Read-only analysis of source code for vulnerability patterns.',
+    tools: ['read_file', 'list_directory', 'search_files', 'git'],
+    promptAddon: 'You are in code audit mode. Analyze source code for security vulnerabilities: SQL injection, XSS, command injection, hardcoded secrets, insecure deserialization, authentication flaws, and authorization bypasses. Do not modify any files.'
   }
 };
 
@@ -304,7 +311,7 @@ export function getDefaultSystemPrompt() {
 }
 
 export function getModeConfig(mode) {
-  return MODE_CONFIGS[mode] || MODE_CONFIGS.code;
+  return MODE_CONFIGS[mode] || MODE_CONFIGS.recon;
 }
 
 export function getBlockedCommands() {

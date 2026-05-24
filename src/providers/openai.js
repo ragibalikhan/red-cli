@@ -163,6 +163,7 @@ export class OpenAIProvider extends BaseProvider {
       messages: flatMessages,
       max_tokens: getOpenAIRequestMaxTokens(this.model, this.maxTokens),
       stream: true,
+      stream_options: { include_usage: true },
       tools: tools.length > 0 ? this.formatTools(tools) : undefined
     }, {
       signal: options.signal
@@ -187,11 +188,25 @@ export class OpenAIProvider extends BaseProvider {
       }
     }
 
-    const parsedToolCalls = toolCallsByIndex
-      .filter(tc => tc?.function?.name)
-      .map(tc => this.parseToolCall(tc));
+     const parsedToolCalls = toolCallsByIndex
+       .filter(tc => tc?.function?.name)
+       .map(tc => this.parseToolCall(tc));
 
-    yield { type: 'done', text: accumulatedContent, toolUses: this.extractToolCalls(parsedToolCalls, accumulatedContent), usage: { outputTokens: accumulatedContent.length / 4 } };
+     yield { type: 'done', text: accumulatedContent, toolUses: this.extractToolCalls(parsedToolCalls, accumulatedContent) };
+
+     // Get final usage from OpenAI
+     const finalResponse = await response;
+     const usage = finalResponse.usage;
+     
+     yield { 
+       type: 'usage', 
+       usage: {
+         inputTokens: usage.prompt_tokens,
+         outputTokens: usage.completion_tokens,
+         cacheCreationInputTokens: usage.prompt_tokens_details?.cached_tokens || 0,
+         cacheReadInputTokens: 0 // OpenAI doesn't separate cache read/write in the same way
+       }
+     };
   }
 
   async sendMessage(messages, tools = [], options = {}) {

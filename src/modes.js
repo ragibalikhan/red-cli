@@ -19,12 +19,12 @@ export function getModePromptAddon(mode) {
 }
 
 export const MODE_COLORS = {
-  code: 'cyan',
-  review: 'yellow',
-  ask: 'blue',
-  devops: 'magenta',
-  docs: 'green',
-  commit: 'red'
+  recon: 'cyan',
+  scan: 'yellow',
+  exploit: 'red',
+  report: 'green',
+  osint: 'blue',
+  audit: 'magenta'
 };
 
 export function getModeColor(mode) {

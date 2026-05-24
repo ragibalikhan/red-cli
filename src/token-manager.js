@@ -50,6 +50,10 @@ const MODEL_LIMITS = {
   'default': { context: 32000, maxOutput: 4096 }
 };
 
+// Tokenizer instances (lazy loaded)
+let gptTokenizer = null;
+let anthropicTokenizer = null;
+
 // Get model limits
 export function getModelLimits(modelName) {
   // Try exact match first
@@ -67,8 +71,95 @@ export function getModelLimits(modelName) {
   return MODEL_LIMITS.default;
 }
 
-// Estimate tokens (rough: ~4 chars per token)
-export function estimateTokens(text) {
+// Initialize tokenizers with fallback
+async function initializeTokenizers() {
+  try {
+    if (!gptTokenizer) {
+      const gptTokenizerModule = await import('gpt-tokenizer');
+      // gpt-tokenizer exports a default instance that we can use directly
+      gptTokenizer = gptTokenizerModule.default;
+      if (process.env.DEBUG === 'true') console.log(chalk.dim('  🔧 GPT tokenizer loaded'));
+    }
+    
+    if (!anthropicTokenizer) {
+      const anthropicTokenizerModule = await import('@anthropic-ai/tokenizer');
+      // @anthropic-ai/tokenizer exports a default object with getTokenizer method
+      const { getTokenizer } = anthropicTokenizerModule.default;
+      anthropicTokenizer = getTokenizer();
+      if (process.env.DEBUG === 'true') console.log(chalk.dim('  🔧 Anthropic tokenizer loaded'));
+    }
+  } catch (error) {
+    console.warn(chalk.yellow('  ⚠️  Failed to load tokenizers, falling back to heuristic estimation'));
+    console.warn(chalk.yellow('     Error:', error.message));
+    // Keep as null to trigger fallback
+  }
+}
+
+// Estimate tokens with exact counting for supported models
+export async function estimateTokens(text, model = 'default') {
+  if (!text) return 0;
+  if (typeof text === 'object') {
+    text = JSON.stringify(text);
+  }
+
+  // Try to use exact tokenizers for OpenAI and Anthropic models
+  try {
+    await initializeTokenizers();
+    
+    // OpenAI models (using o200k_base for GPT-4o/5.x, cl100k_base for older)
+    if (model.startsWith('gpt-4o') || model.startsWith('gpt-5')) {
+      if (gptTokenizer) {
+        const tokens = gptTokenizer.encode(text).length;
+        if (process.env.DEBUG === 'true') console.log(chalk.dim(`  🔢 OpenAI tokens for '${text.substring(0, 20)}...': ${tokens}`));
+        return tokens;
+      }
+    } else if (model.startsWith('gpt-') || model.startsWith('text-')) {
+      // Legacy OpenAI models - use cl100k_base encoding
+      // For simplicity, we'll use the same tokenizer but note it's an approximation
+      if (gptTokenizer) {
+        const tokens = gptTokenizer.encode(text).length;
+        if (process.env.DEBUG === 'true') console.log(chalk.dim(`  🔢 Legacy OpenAI tokens for '${text.substring(0, 20)}...': ${tokens}`));
+        return tokens;
+      }
+    } 
+    // Anthropic models
+    else if (model.startsWith('claude-')) {
+      if (anthropicTokenizer) {
+        const tokens = anthropicTokenizer.encode(text).length;
+        if (process.env.DEBUG === 'true') console.log(chalk.dim(`  🔢 Anthropic tokens for '${text.substring(0, 20)}...': ${tokens}`));
+        return tokens;
+      }
+    }
+    // For known model families (Gemini/Ollama/etc), use approximation
+    else if (
+      model.startsWith('gemini-') || 
+      model.startsWith('llama') ||
+      model.includes('/') ||  // Providers like 'deepseek-ai/deepseek-v3'
+      model.includes('-free') // OpenCode Zen models
+    ) {
+      if (gptTokenizer) {
+        const tokens = gptTokenizer.encode(text).length;
+        if (process.env.DEBUG === 'true') console.log(chalk.dim(`  🔢 Approximation tokens for '${text.substring(0, 20)}...': ${tokens}`));
+        return tokens;
+      }
+    }
+    // For completely unknown models, fall back to heuristic
+    else {
+      // Will fall through to heuristic below
+    }
+  } catch (error) {
+    console.warn(chalk.yellow(`  ⚠️  Tokenizer error: ${error.message}`));
+    // Fall through to heuristic below
+  }
+
+  // Graceful fallback to old heuristic
+  const fallback = Math.ceil(text.length / 4);
+  if (process.env.DEBUG === 'true') console.log(chalk.dim(`  🔢 Fallback tokens for '${text.substring(0, 20)}...': ${fallback}`));
+  return fallback;
+}
+
+// Synchronous version for backward compatibility (uses heuristic)
+export function estimateTokensSync(text) {
   if (!text) return 0;
   if (typeof text === 'object') {
     text = JSON.stringify(text);
@@ -77,7 +168,7 @@ export function estimateTokens(text) {
 }
 
 // Calculate total tokens in messages
-export function calculateMessageTokens(messages) {
+export async function calculateMessageTokens(messages, model = 'default') {
   let total = 0;
 
   for (const msg of messages) {
@@ -86,15 +177,45 @@ export function calculateMessageTokens(messages) {
 
     // Content
     if (typeof msg.content === 'string') {
-      total += estimateTokens(msg.content);
+      total += await estimateTokens(msg.content, model);
     } else if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
         if (block.type === 'text') {
-          total += estimateTokens(block.text);
+          total += await estimateTokens(block.text, model);
         } else if (block.type === 'tool_use') {
-          total += estimateTokens(block.name) + estimateTokens(JSON.stringify(block.input));
+          total += await estimateTokens(block.name, model) + await estimateTokens(JSON.stringify(block.input), model);
         } else if (block.type === 'tool_result') {
-          total += estimateTokens(block.content);
+          total += await estimateTokens(block.content, model);
+        }
+      }
+    }
+
+    // Per-message overhead
+    total += 3;
+  }
+
+  return total;
+}
+
+// Synchronous version for backward compatibility
+export function calculateMessageTokensSync(messages) {
+  let total = 0;
+
+  for (const msg of messages) {
+    // Role token overhead
+    total += 4;
+
+    // Content
+    if (typeof msg.content === 'string') {
+      total += estimateTokensSync(msg.content);
+    } else if (Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (block.type === 'text') {
+          total += estimateTokensSync(block.text);
+        } else if (block.type === 'tool_use') {
+          total += estimateTokensSync(block.name) + estimateTokensSync(JSON.stringify(block.input));
+        } else if (block.type === 'tool_result') {
+          total += estimateTokensSync(block.content);
         }
       }
     }
@@ -116,13 +237,13 @@ export class TokenManager {
   }
 
   // Set system prompt token count
-  setSystemPrompt(prompt) {
-    this.systemPromptTokens = estimateTokens(prompt);
+  async setSystemPrompt(prompt) {
+    this.systemPromptTokens = await estimateTokens(prompt, this.modelName);
   }
 
   // Set tools token count
-  setToolsTokens(toolDefs) {
-    this.toolsTokens = estimateTokens(JSON.stringify(toolDefs));
+  async setToolsTokens(toolDefs) {
+    this.toolsTokens = await estimateTokens(JSON.stringify(toolDefs), this.modelName);
   }
 
   // Get safe max tokens for completion
@@ -132,7 +253,7 @@ export class TokenManager {
 
   // Trim messages to fit within context limit
   // Strategy: Keep system, tools, and most recent messages
-  trimMessages(messages, systemPrompt = '') {
+  async trimMessages(messages, systemPrompt = '') {
     const contextLimit = this.limits.context;
     const reservedTokens = this.systemPromptTokens + this.toolsTokens + 1000; // buffer
     const availableForMessages = contextLimit - reservedTokens;
@@ -143,7 +264,7 @@ export class TokenManager {
     }
 
     // Calculate current tokens
-    const currentTokens = calculateMessageTokens(messages);
+    const currentTokens = await calculateMessageTokens(messages, this.modelName);
 
     if (currentTokens <= availableForMessages) {
       return messages; // Fits, no trimming needed
@@ -159,7 +280,7 @@ export class TokenManager {
     // Go through messages from newest to oldest
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
-      const msgTokens = calculateMessageTokens([msg]);
+      const msgTokens = await calculateMessageTokens([msg], this.modelName);
 
       if (tokensUsed + msgTokens <= availableForMessages) {
         trimmed.unshift(msg);
@@ -196,8 +317,8 @@ export class TokenManager {
   }
 
   // Get context usage stats
-  getStats(messages) {
-    const total = calculateMessageTokens(messages);
+  async getStats(messages) {
+    const total = await calculateMessageTokens(messages, this.modelName);
     const limit = this.limits.context;
     const percent = Math.round((total / limit) * 100);
 
@@ -237,7 +358,9 @@ export function modelSupports(modelName, feature) {
 export default {
   getModelLimits,
   estimateTokens,
+  estimateTokensSync,
   calculateMessageTokens,
+  calculateMessageTokensSync,
   TokenManager,
   createTokenManager,
   modelSupports

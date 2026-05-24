@@ -137,7 +137,7 @@ export function renderSuccess(message) {
   return chalk[theme.success](message);
 }
 
-export function renderHelp(registry = null) {
+export function renderHelp(registry = null, pluginCommands = []) {
   // If registry is provided, use it to show categorized commands
   if (registry && registry.getAll) {
     const commands = registry.getAll();
@@ -155,6 +155,15 @@ export function renderHelp(registry = null) {
       }
       if (catCommands.length > 5) {
         helpText += chalk.dim(`  ... and ${catCommands.length - 5} more (type / to see all)\n`);
+      }
+    }
+
+    // Plugin commands section
+    if (pluginCommands.length > 0) {
+      helpText += chalk.bold(`\n🔌 Plugins:\n`);
+      for (const cmd of pluginCommands) {
+        const aliases = cmd.aliases?.length > 0 ? ` ${chalk.dim(cmd.aliases.join(', '))}` : '';
+        helpText += `  ${chalk.cyan(cmd.name)}${aliases} ${chalk.dim('- ' + (cmd.description || '').substring(0, 40))}\n`;
       }
     }
 

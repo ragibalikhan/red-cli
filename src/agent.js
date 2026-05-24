@@ -1,10 +1,12 @@
 import { getToolDefinitions, executeTool } from './tools.js';
 import { loadConfig, getDefaultSystemPrompt, PROVIDERS, normalizeProviderModel } from './config.js';
 import { getModeTools, getModePromptAddon } from './modes.js';
+import { detectMode } from './mode-detector.js';
 import { PROVIDER_CLASSES } from './providers/index.js';
 import { renderClaudeResponse, renderToolCall, renderToolResult, renderError, renderSuccess } from './renderer.js';
 import { createTokenManager, getModelLimits, estimateTokens, calculateMessageTokens } from './token-manager.js';
 import { parseToolCallsFromText, getTextToolCallPrompt, getTextToolSchemaPrompt } from './tool-call-parser.js';
+import { createMemory } from './memory.js';
 import ora from 'ora';
 import chalk from 'chalk';
 
@@ -27,7 +29,10 @@ export class Agent {
     this.tokenCount = 0;
     this.toolCallCount = 0;
     this.analytics = analytics;
+    this.memory = createMemory();
+    this._mcpManager = null;
     this._initPromise = this.initProvider();
+    this._consecutiveProviderErrors = 0;
   }
 
   static getEffortMaxTokens(effort) {
@@ -35,7 +40,35 @@ export class Agent {
     return map[effort] || 8096;
   }
 
+  static _clipToolResult(result, contextWindow) {
+    const maxTokens = Math.min(Math.max(Math.round(contextWindow * 0.1), 2000), 20000);
+
+    if (typeof result === 'string') {
+      const approximateTokens = Math.ceil(result.length / 4);
+      if (approximateTokens <= maxTokens) return result;
+      const charsPerToken = 4;
+      const maxChars = maxTokens * charsPerToken;
+      const headChars = Math.floor(maxChars * 0.6);
+      const tailChars = Math.floor(maxChars * 0.3);
+
+      const head = result.slice(0, headChars);
+      const tail = result.slice(-tailChars);
+      const truncated = Math.ceil((result.length - headChars - tailChars) / 4);
+      return `${head}\n\n[... ${truncated} tokens truncated ...]\n\n${tail}`;
+    }
+
+    if (typeof result === 'object' && result !== null) {
+      const str = JSON.stringify(result, null, 2);
+      if (str.length <= maxTokens * 4) return result;
+      return { error: `Tool output too large (${str.length} chars, max ${maxTokens * 4})`, truncated: true };
+    }
+
+    return result;
+  }
+
   async initProvider() {
+    if (this.provider) return;
+
     const providerKey = this.config.provider || 'anthropic';
     const providerFactory = PROVIDER_CLASSES[providerKey];
 
@@ -44,6 +77,9 @@ export class Agent {
     }
 
     const ProviderClass = await providerFactory();
+
+    // Allow tests or subclasses to override the provider before init completes
+    if (this.provider) return;
 
     const providerConfig = {
       ...this.config,
@@ -66,31 +102,55 @@ export class Agent {
     this.onConfirm = callback;
   }
 
-  async run(userMessage, isOneShot = false, options = {}) {
-    await this.ensureReady();
-
-    this.messages.push({ role: 'user', content: userMessage });
-    this.abortController = new AbortController();
-    const signal = options.signal || this.abortController.signal;
-
-    const spinner = ora({ text: 'Thinking...', spinner: 'dots' }).start();
-
-    try {
-      await this.runLoop(spinner, { signal });
-    } catch (err) {
-      spinner.stop();
-      if (err.name === 'AbortError' || /abort(ed)?/i.test(err.message || '')) {
-        console.log(chalk.yellow('\n  Chat interrupted.'));
-      } else {
-        console.error(renderError(err.message));
-        throw err;
-      }
-    } finally {
-      this.abortController = null;
-    }
-
-    if (!isOneShot) spinner.stop();
+  attachMcpManager(mcpManager) {
+    this._mcpManager = mcpManager;
+    const mcpTools = mcpManager.listTools().map(t => ({
+      name: `mcp__${t.name}`,
+      description: t.description || `MCP tool from "${t.serverName}"`,
+      input_schema: t.inputSchema,
+      mcpServer: t.serverName
+    }));
+    this.tools = [...this.tools, ...mcpTools];
   }
+
+    async run(userMessage, isOneShot = false, options = {}) {
+        // Handle /compact command
+        if (userMessage.trim() === '/compact') {
+            await this.handleCompact();
+            return;
+        }
+
+        await this.ensureReady();
+
+        // Auto-detect intent and switch mode
+        const detected = detectMode(userMessage);
+        if (detected && detected !== this.mode) {
+          const oldMode = this.mode;
+          this.setMode(detected);
+          console.log(chalk.dim(`  🔄 Detected intent — switched ${oldMode} → ${detected}\n`));
+        }
+
+        this.messages.push({ role: 'user', content: userMessage });
+        this.abortController = new AbortController();
+        const signal = options.signal || this.abortController.signal;
+
+        const spinner = ora({ text: 'Thinking...', spinner: 'dots' }).start();
+
+        try {
+            await this.runLoop(spinner, { signal });
+        } catch (err) {
+            if (spinner && spinner.isSpinning) spinner.stop();
+            if (err.name === 'AbortError' || /abort(ed)?/i.test(err.message || '')) {
+                return;
+            }
+            const errorText = `Provider error: ${err.message}`;
+            this.messages.push({ role: 'assistant', content: errorText });
+            process.stdout.write('\n' + chalk.red(errorText) + '\n');
+        } finally {
+            if (!isOneShot) spinner.stop();
+            this.abortController = null;
+        }
+    }
 
   async runLoop(spinner, options = {}) {
     const modeTools = getModeTools(this.tools, this.mode);
@@ -107,7 +167,7 @@ export class Agent {
     const systemMessage = { role: 'system', content: systemPrompt };
 
     // Smart context trimming - keep conversation under token limit
-    const trimmedMessages = this.tokenManager.trimMessages(this.messages, systemPrompt);
+    const trimmedMessages = await this.tokenManager.trimMessages(this.messages, systemPrompt);
     const allMessages = [systemMessage, ...trimmedMessages];
 
     // Log context usage if getting large
@@ -116,13 +176,31 @@ export class Agent {
       console.log(chalk.dim(`  📊 Context: ${contextStats.percent}% used (${contextStats.used}/${contextStats.limit})`));
     }
 
+    // Auto-compact if context exceeds 90% to prevent provider timeouts
+    if (contextStats.percent > 90 && toolDepth === 0 && this.messages.length > 4) {
+      console.log(chalk.yellow('\n  ⚠️  Context nearly full. Auto-compacting before call...\n'));
+      await this.handleCompact();
+      // Rebuild messages after compact
+      const trimmedMessages2 = await this.tokenManager.trimMessages(this.messages, systemPrompt);
+      const allMessages2 = [systemMessage, ...trimmedMessages2];
+      const contextStats2 = this.tokenManager.getStats(allMessages2);
+      if (contextStats2.percent > 80) {
+        console.log(chalk.dim(`  📊 Context after compact: ${contextStats2.percent}% used (${contextStats2.used}/${contextStats2.limit})`));
+      }
+    }
+
+    // Reset trimmedMessages and allMessages after potential compact
+    const trimmedMessagesFinal = await this.tokenManager.trimMessages(this.messages, systemPrompt);
+    const allMessagesFinal = [systemMessage, ...trimmedMessagesFinal];
+
     // Estimate input tokens
-    const inputTokens = calculateMessageTokens(allMessages);
+    const inputTokens = await calculateMessageTokens(allMessagesFinal);
     let hasOutputStarted = false;
     let accumulatedText = '';
+    let providerUsage = null;
 
     try {
-      for await (const chunk of this.provider.streamMessage(allMessages, requestTools, { signal: options.signal })) {
+      for await (const chunk of this.provider.streamMessage(allMessagesFinal, requestTools, { signal: options.signal })) {
         if (chunk.type === 'text') {
           accumulatedText += chunk.content;
           if (nativeToolsSupported && !hasOutputStarted) {
@@ -133,7 +211,10 @@ export class Agent {
           if (nativeToolsSupported) {
             process.stdout.write(chalk.white(chunk.content));
           }
+        } else if (chunk.type === 'usage') {
+          providerUsage = chunk.usage;
         } else if (chunk.type === 'done') {
+          this._consecutiveProviderErrors = 0;
           const responseText = chunk.text ?? accumulatedText;
           let toolUses = chunk.toolUses || [];
 
@@ -150,12 +231,15 @@ export class Agent {
           }
 
           console.log('\n');
-          const outputTokens = estimateTokens(responseText || '');
+          const outputTokens = await estimateTokens(responseText || '');
           this.tokenCount += outputTokens;
 
-          // Update analytics with token usage
           if (this.analytics) {
-            this.analytics.addTokens(inputTokens, outputTokens);
+            if (providerUsage) {
+              this.analytics.addProviderUsage(providerUsage);
+            } else {
+              this.analytics.addTokens(inputTokens, outputTokens);
+            }
           }
 
           if (toolUses.length > 0) {
@@ -203,11 +287,32 @@ export class Agent {
         }
       }
     } catch (err) {
+      if (spinner && spinner.isSpinning) spinner.stop();
       if (err.name === 'AbortError' || /abort(ed)?/i.test(err.message || '')) {
-        if (spinner && spinner.isSpinning) spinner.stop();
         return;
       }
-      throw err;
+      const is5xx = /5\d\d/.test(err.message || '');
+      const shouldAsk = is5xx && typeof this.onConfirm === 'function';
+      const askRetry = shouldAsk
+        ? await this.onConfirm(`\n  ⚠️  Provider returned (${err.message.match(/\d{3}/)?.[0] || '5xx'}). Retry? (y/n): `)
+        : true;
+      if (!askRetry) {
+        console.log(chalk.red('\n  ✗ Stopped by user.\n'));
+        this.messages.push({ role: 'assistant', content: `Cancelled: provider returned ${err.message.match(/\d{3}/)?.[0] || '5xx'} error.` });
+        this._consecutiveProviderErrors = 0;
+        return;
+      }
+      this._consecutiveProviderErrors++;
+      if (this._consecutiveProviderErrors >= 3) {
+        console.log(chalk.red(`\n  ✗ ${this._consecutiveProviderErrors} consecutive provider errors. Stopping.`));
+        console.log(chalk.yellow('  💡 Tip: Check your API key, network, or run /compact to reduce context.\n'));
+        this.messages.push({ role: 'assistant', content: `Stopped after ${this._consecutiveProviderErrors} consecutive provider errors. Please check your API key or network, or run /compact to reduce context.` });
+        this._consecutiveProviderErrors = 0;
+        return;
+      }
+      console.log(chalk.yellow(`\n  ⚠️  Provider error (${this._consecutiveProviderErrors}/3): ${err.message}`));
+      console.log(chalk.dim('  Retrying...\n'));
+      await this.runLoop(spinner, { ...options, toolDepth });
     }
   }
 
@@ -233,7 +338,8 @@ export class Agent {
         try {
           result = await executeTool(toolUse.name, toolUse.input || {}, {
             workingDirectory: process.cwd(),
-            onConfirm: this.onConfirm
+            onConfirm: this.onConfirm,
+            mcpManager: this._mcpManager
           });
         } catch (err) {
           result = { error: err.message || String(err) };
@@ -264,27 +370,36 @@ export class Agent {
     }
   }
 
-  buildSystemPrompt(modeTools = getModeTools(this.tools, this.mode)) {
-    let prompt = this.config.systemPrompt || getDefaultSystemPrompt();
-    prompt = prompt.replace('{cwd}', process.cwd());
-    prompt = prompt.replace('{mode}', this.mode.toUpperCase());
+    buildSystemPrompt(modeTools = getModeTools(this.tools, this.mode)) {
+     let prompt = this.config.systemPrompt || getDefaultSystemPrompt();
+     prompt = prompt.replace('{cwd}', process.cwd());
+     prompt = prompt.replace('{mode}', this.mode.toUpperCase());
 
-    const modeAddon = getModePromptAddon(this.mode);
-    if (modeAddon) {
-      prompt += '\n\n' + modeAddon;
-    }
+     const modeAddon = getModePromptAddon(this.mode);
+     if (modeAddon) {
+       prompt += '\n\n' + modeAddon;
+     }
 
-    if (modeTools.length > 0) {
-      const toolList = modeTools.map(t => `- ${t.name}: ${t.description}`).join('\n');
-      prompt += `\n\nAvailable tools:\n${toolList}`;
+     if (modeTools.length > 0) {
+       const toolList = modeTools.map(t => `- ${t.name}: ${t.description}`).join('\n');
+       prompt += `\n\nAvailable tools:\n${toolList}`;
 
-      if (this.provider?.supportsNativeTools !== true) {
-        prompt += `\n\n${getTextToolCallPrompt()}\n\n${getTextToolSchemaPrompt(modeTools)}`;
-      }
-    }
+       if (this.provider?.supportsNativeTools !== true) {
+         prompt += `\n\n${getTextToolCallPrompt()}\n\n${getTextToolSchemaPrompt(modeTools)}`;
+       }
+     }
 
-    return prompt;
-  }
+      // Append memory (strip ANSI codes), safe if memory is missing or throws
+      try {
+        const memoryPrompt = this.memory?.toPrompt() || '';
+        const strippedMemoryPrompt = memoryPrompt.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+        if (strippedMemoryPrompt.trim()) {
+          prompt += '\n\n' + strippedMemoryPrompt;
+        }
+      } catch {}
+
+      return prompt;
+   }
 
   clearHistory() {
     this.messages = [];
@@ -321,11 +436,115 @@ export class Agent {
     console.log(renderSuccess(`Switched to mode: ${modeName}`));
   }
 
-  getStats() {
-    return {
-      tokens: this.tokenCount,
-      toolCalls: this.toolCallCount,
-      messages: this.messages.length
-    };
-  }
+   /**
+   * Handle the /compact command - summarizes conversation to save tokens
+   */
+   async handleCompact() {
+     if (this.messages.length === 0) {
+       console.log(chalk.yellow('  ⚠️  No conversation to compact'));
+       return;
+     }
+
+     // Show compacting message
+     const spinner = ora({ text: 'Compacting conversation...', spinner: 'dots' }).start();
+
+     try {
+       // Build a summarization prompt
+       const summaryPrompt = `
+You are an expert conversation summarizer. Create a concise summary of the conversation history 
+focusing on: Objectives, Key Decisions, Files Touched, and Open Questions.
+
+Format your response as:
+
+**Objectives**
+- [Main goals and tasks discussed]
+
+**Key Decisions**  
+- [Important technical decisions made]
+
+**Files Touched**
+- [List of files that were read, modified, or created]
+
+**Open Questions**
+- [Unresolved issues or questions for follow-up]
+
+Be concise but comprehensive. Focus on information that would be useful for continuing the conversation.
+`;
+
+       // Prepare messages for summarization (excluding system messages to save tokens)
+       const userMessages = this.messages.filter(m => m.role !== 'system');
+
+       // Create a temporary agent for summarization (to avoid polluting main conversation)
+       const summaryAgentConfig = {
+         ...this.config,
+         model: this.config.model,
+         temperature: 0.3, // Lower temperature for more focused summarization
+         maxTokens: 1024   // Limit summary length
+       };
+
+       const { Agent: SummaryAgent } = await import('../src/agent.js');
+       const summaryAgent = new SummaryAgent(summaryAgentConfig, this.analytics);
+
+       // Get summary from the model
+       let summaryText = '';
+       for await (const chunk of summaryAgent.provider.streamMessage(
+         [
+           { role: 'system', content: summaryPrompt },
+           ...userMessages.map(m => ({ role: m.role, content: m.content }))
+         ],
+         [], // No tools needed for summarization
+         {}
+       )) {
+         if (chunk.type === 'text') {
+           summaryText += chunk.content;
+         }
+       }
+
+       // Extract token counts before and after
+       const beforeTokens = await calculateMessageTokens(this.messages, this.config.model);
+       const afterMessages = [
+         { role: 'system', content: this.buildSystemPrompt() },
+         { role: 'assistant', content: `Conversation compacted. Summary: ${summaryText}` },
+         { role: 'user', content: '(Continuing conversation...)' }
+       ];
+       const afterTokens = await calculateMessageTokens(afterMessages, this.config.model);
+       const tokensSaved = beforeTokens - afterTokens;
+       const savingsPercent = beforeTokens > 0 ? Math.round((tokensSaved / beforeTokens) * 100) : 0;
+
+       // Create a decision-category memory entry for the summary
+       this.memory.remember(`compact_${Date.now()}`, {
+         type: 'decision',
+         content: summaryText,
+         timestamp: new Date().toISOString(),
+         model: this.config.model
+       });
+
+       // Replace conversation history with summary + seed message
+       this.messages = [
+         { role: 'system', content: this.buildSystemPrompt() },
+         { role: 'assistant', content: `Conversation compacted. Summary: ${summaryText}` },
+         { role: 'user', content: '(Continuing conversation...)' }
+       ];
+
+       // Update token count
+       this.tokenCount = afterTokens;
+
+       spinner.succeed(`  ✓ Conversation compacted! Saved ~${tokensSaved} tokens (${savingsPercent}% reduction)`);
+       
+       // Log the summary for user visibility
+       console.log(chalk.dim(`\n📋 Summary:\n${summaryText}\n`));
+     } catch (err) {
+       spinner.fail('  ✗ Failed to compact conversation');
+       console.error(chalk.red(`  Error: ${err.message}`));
+       // Don't throw - just continue with original conversation
+     }
+   }
+
+   getStats() {
+     return {
+       tokens: this.tokenCount,
+       toolCalls: this.toolCallCount,
+       messages: this.messages.length
+     };
+   }
 }

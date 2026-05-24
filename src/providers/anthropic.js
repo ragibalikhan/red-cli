@@ -119,21 +119,31 @@ export class AnthropicProvider extends BaseProvider {
       }
     }
 
-    toolUseBlocks = toolUseBlocks.map(block => {
-      const json = jsonBuffers[block.id];
-      if (!json) return block;
+     toolUseBlocks = toolUseBlocks.map(block => {
+       const json = jsonBuffers[block.id];
+       if (!json) return block;
 
-      try {
-        return { ...block, input: JSON.parse(json) };
-      } catch (err) {
-        return { ...block, input: { error: `Invalid tool input JSON: ${err.message}`, raw: json } };
-      }
-    });
+       try {
+         return { ...block, input: JSON.parse(json) };
+       } catch (err) {
+         return { ...block, input: { error: `Invalid tool input JSON: ${err.message}`, raw: json } };
+       }
+     });
 
-    yield { type: 'done', text: accumulatedText, toolUses: this.extractToolCalls(toolUseBlocks, accumulatedText) };
+     yield { type: 'done', text: accumulatedText, toolUses: this.extractToolCalls(toolUseBlocks, accumulatedText) };
 
-    const finalMessage = await response.finalMessage();
-    yield { type: 'stop_reason', reason: finalMessage.stop_reason };
+     const finalMessage = await response.finalMessage();
+      const usage = finalMessage.usage;
+      yield {
+        type: 'usage',
+        usage: {
+          inputTokens: usage.input_tokens,
+          outputTokens: usage.output_tokens,
+          cacheCreationInputTokens: usage.cache_creation_input_tokens || 0,
+          cacheReadInputTokens: usage.cache_read_input_tokens || 0
+        }
+      };
+     yield { type: 'stop_reason', reason: finalMessage.stop_reason };
   }
 
   async sendMessage(messages, tools = [], options = {}) {

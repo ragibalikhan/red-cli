@@ -21,6 +21,7 @@ import { SlashMenu } from './ui/slash-menu.js';
 import { SessionSelector } from './ui/session-selector.js';
 import { showWelcome } from './ui/welcome.js';
 import { CommandRegistry } from './commands/registry.js';
+import { createPluginManager } from './plugin-manager.js';
 
 const HISTORY_PATH = join(homedir(), '.red', 'history');
 const SESSIONS_PATH = join(homedir(), '.red', 'sessions');
@@ -35,6 +36,7 @@ function debugLog(...args) {
 let rl;
 let agent;
 let config;
+let mcpManager;
 let contextFiles = [];
 let projectContext;
 let memory;
@@ -46,6 +48,7 @@ let autoAgent;
 let checkpointMgr;
 let slashMenu;
 let commandRegistry;
+let pluginManager;
 let inputBuffer = '';
 let inputHandlerAttached = false;
 
@@ -168,6 +171,22 @@ export async function startRepl(cfg) {
   slashMenu = new SlashMenu();
   commandRegistry = new CommandRegistry();
 
+  // Load plugins
+  pluginManager = createPluginManager();
+  await pluginManager.loadPlugins();
+
+  // Initialize MCP servers
+  mcpManager = null;
+  if (config.mcpServers?.length > 0) {
+    const { McpManager } = await import('./mcp.js');
+    mcpManager = new McpManager(config.mcpServers);
+    const results = await mcpManager.connectAll();
+    const connected = results.filter(r => r.success).length;
+    if (connected > 0) {
+      agent.attachMcpManager(mcpManager);
+    }
+  }
+
   // Show welcome screen (skip clearScreen in TTY mode to avoid PowerShell issues)
   const isInteractive = process.stdin.isTTY === true;
   debugLog('isInteractive:', isInteractive, 'isTTY:', process.stdin.isTTY, 'platform:', process.platform);
@@ -178,7 +197,8 @@ export async function startRepl(cfg) {
     model: config.model,
     provider: config.provider,
     mode: agent.mode,
-    toolCount: getModeTools(agent.tools, agent.mode).length
+    toolCount: getModeTools(agent.tools, agent.mode).length,
+    mcpCount: mcpManager?.size || 0
   });
 
   // Setup input handling for slash menu
@@ -188,14 +208,31 @@ export async function startRepl(cfg) {
   // Detect if we're in interactive terminal mode
   // isInteractive is defined at line 100
 
-  process.on('beforeExit', (code) => {
-    debugLog('beforeExit', code, 'activeHandles:', process._getActiveHandles().map(h => h.constructor.name));
-    debugLog('activeRequests:', process._getActiveRequests().map(r => r.constructor.name));
-  });
-  process.on('exit', (code) => debugLog('process.exit', code));
-  process.on('uncaughtException', (err) => debugLog('uncaughtException', err));
-  process.on('unhandledRejection', (reason) => debugLog('unhandledRejection', reason));
-  process.stdin.on('end', () => debugLog('stdin.end'));
+  ensureSessionsDir();
+  const _sessionAutoSavePath = join(SESSIONS_PATH, `auto-save.md`);
+  let _lastAutoSave = 0;
+
+  function autoSaveSession() {
+    if (agent && agent.messages && agent.messages.length > 0 && !agent.isClosed) {
+      agent.isClosed = true;
+      const path = saveSessionFile(getDefaultSessionPath());
+      if (path) debugLog('auto-saved session:', path);
+    }
+  }
+
+  function periodicAutoSave() {
+    const now = Date.now();
+    if (agent && agent.messages && agent.messages.length > 0 && now - _lastAutoSave > 30000) {
+      _lastAutoSave = now;
+      saveSessionFile(_sessionAutoSavePath);
+      debugLog('periodic auto-save');
+    }
+  }
+  process.on('beforeExit', () => autoSaveSession());
+  process.on('exit', () => undefined);  // keep to suppress diagnostic warnings
+  process.on('uncaughtException', () => autoSaveSession());
+  process.on('unhandledRejection', () => autoSaveSession());
+  process.stdin.on('end', () => autoSaveSession());
 
   debugLog('Creating readline, isInteractive:', isInteractive);
   readline.emitKeypressEvents(process.stdin);
@@ -207,7 +244,10 @@ export async function startRepl(cfg) {
   });
   // Export rl to global for AutoAgent to use for confirmations
   global.__red_rl = rl;
-  rl.on('close', () => debugLog('rl.close event emitted'));
+  rl.on('close', () => {
+    autoSaveSession();
+    debugLog('rl.close event emitted');
+  });
 
   rl.on('SIGINT', () => {
     if (isProcessing) {
@@ -228,6 +268,7 @@ export async function startRepl(cfg) {
     }
 
     debugLog('SIGINT received twice: exiting');
+    autoSaveSession();
     process.exit(0);
   });
 
@@ -295,29 +336,30 @@ export async function startRepl(cfg) {
           console.log(renderError(err.message));
         }
         if (!isInteractive) process.stdout.write('\nred> ');
-      } else {
-        saveHistoryItem(trimmed);
-
-        // Skip auto-plan for simplicity
-        if (false && planner.shouldAutoPlan(trimmed) && config.planMode !== 'never') {
-          console.log(chalk.dim('Planning...\n'));
-          const plan = await planner.planTask(trimmed);
-          console.log(planner.displayPlan(plan));
-
-          const confirm = await promptUserConfirmation('Execute plan? [y/n]: ');
-          if (confirm) {
-            await planner.executePlan(plan);
-          }
         } else {
-          try {
-            await agent.run(trimmed);
-            printTokenBar();
-          } catch (err) {
-            console.error(renderError(err.message));
+          saveHistoryItem(trimmed);
+
+          // Skip auto-plan for simplicity
+          if (false && planner.shouldAutoPlan(trimmed) && config.planMode !== 'never') {
+            console.log(chalk.dim('Planning...\n'));
+            const plan = await planner.planTask(trimmed);
+            console.log(planner.displayPlan(plan));
+
+            const confirm = await promptUserConfirmation('Execute plan? [y/n]: ');
+            if (confirm) {
+              await planner.executePlan(plan);
+            }
+          } else {
+            try {
+              await agent.run(trimmed);
+              printTokenBar();
+              periodicAutoSave();
+            } catch (err) {
+              console.error(renderError(err.message));
+            }
           }
+          if (!isInteractive) process.stdout.write('\nred> ');
         }
-        if (!isInteractive) process.stdout.write('\nred> ');
-      }
     } while (inputQueue.length > 0);
 
     isProcessing = false;
@@ -376,7 +418,7 @@ function printBanner() {
   const colorFn = chalk[modeColor] || chalk.cyan;
 
   console.log(chalk.cyan.bold('╔═══════════════════════════════════════════════╗'));
-  console.log(chalk.cyan.bold('║') + chalk.white('           Red CLI - AI Coding Assistant       ') + chalk.cyan.bold('║'));
+  console.log(chalk.cyan.bold('║') + chalk.white('           Red CLI - Cybersecurity CLI         ') + chalk.cyan.bold('║'));
   console.log(chalk.cyan.bold('╚═══════════════════════════════════════════════╝'));
   console.log('');
   console.log(chalk.dim(`  Provider: ${config.provider || 'anthropic'}`));
@@ -403,6 +445,19 @@ async function handleCommand(cmd) {
   const parts = cmd.split(/\s+/);
   const command = parts[0].toLowerCase();
   const args = parts.slice(1).join(' ');
+
+  // Check plugin commands first (they take precedence over built-ins)
+  if (pluginManager) {
+    const pluginCmd = pluginManager.findCommand(command);
+    if (pluginCmd && typeof pluginCmd.run === 'function') {
+      try {
+        await pluginCmd.run(args);
+      } catch (err) {
+        console.log(renderError(`Plugin command error: ${err.message}`));
+      }
+      return;
+    }
+  }
 
   switch (command) {
     case '/exit':
@@ -1449,13 +1504,45 @@ async function handleCommand(cmd) {
       }
       break;
 
+    case '/plugins':
+      if (pluginManager) {
+        pluginManager.listPlugins();
+      } else {
+        console.log(chalk.yellow('  Plugin system not available.'));
+      }
+      break;
+
     case '/help':
-      console.log(renderHelp(commandRegistry));
+      const pluginCommands = pluginManager ? pluginManager.getCommands() : [];
+      console.log(renderHelp(commandRegistry, pluginCommands));
       break;
 
     case '/':
       // Show interactive menu
       showSlashMenu();
+      break;
+
+    case '/mcp':
+      if (!mcpManager || mcpManager.size === 0) {
+        console.log(renderError('No MCP servers configured'));
+        break;
+      }
+      if (args === 'reload') {
+        console.log(chalk.dim('  Reloading MCP servers...'));
+        const results = await mcpManager.reload(config.mcpServers || []);
+        const connected = results.filter(r => r.success).length;
+        console.log(chalk.dim(`  ${connected}/${results.length} MCP servers connected`));
+        agent.attachMcpManager(mcpManager);
+        break;
+      }
+      console.log(chalk.bold('\nMCP Servers:'));
+      for (const [name, handle] of mcpManager.servers) {
+        const status = handle.connected ? chalk.green('connected') : chalk.red('disconnected');
+        console.log(`  ${chalk.cyan(name)} (${status}) - ${handle.tools.length} tools`);
+        for (const tool of handle.tools) {
+          console.log(chalk.dim(`    - ${tool.name}: ${tool.description || 'no description'}`));
+        }
+      }
       break;
 
     default:
@@ -1464,7 +1551,7 @@ async function handleCommand(cmd) {
 }
 
 function generateMarkdown() {
-  let md = '# Red CLI Conversation\n\n';
+  let md = '# Red CLI Security Assessment\n\n';
   for (const msg of agent.messages) {
     md += `## ${msg.role === 'user' ? 'User' : 'Assistant'}\n\n`;
     md += typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2);
@@ -1495,7 +1582,7 @@ function parseAndLoadConversation(md) {
 }
 
 function showSlashMenu() {
-  console.log(chalk.red.bold('\n╭─ 🎯 Available Commands ────────────────────────────────────────╮'));
+  console.log(chalk.red.bold('\n╭─ 💀 Red CLI Commands ──────────────────────────────────────────╮'));
   console.log(chalk.red('│'));
 
   const commands = commandRegistry.getAll();
