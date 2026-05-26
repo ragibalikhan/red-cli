@@ -23,6 +23,7 @@ import { SessionSelector } from './ui/session-selector.js';
 import { showWelcome } from './ui/welcome.js';
 import { CommandRegistry } from './commands/registry.js';
 import { createPluginManager } from './plugin-manager.js';
+import statusBar from './ui/status-bar.js';
 
 const HISTORY_PATH = join(homedir(), '.red', 'history');
 const SESSIONS_PATH = join(homedir(), '.red', 'sessions');
@@ -199,7 +200,8 @@ export async function startRepl(cfg) {
     provider: config.provider,
     mode: agent.mode,
     toolCount: getModeTools(agent.tools, agent.mode).length,
-    mcpCount: mcpManager?.size || 0
+    mcpCount: mcpManager?.size || 0,
+    apiKeys: config.apiKeys
   });
 
   // Setup input handling for slash menu
@@ -236,15 +238,62 @@ export async function startRepl(cfg) {
   process.stdin.on('end', () => autoSaveSession());
 
   debugLog('Creating readline, isInteractive:', isInteractive);
-  readline.emitKeypressEvents(process.stdin);
   rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
-    terminal: isInteractive,  // Use true in interactive mode
+    terminal: isInteractive,
     historySize: 100
   });
   // Export rl to global for AutoAgent to use for confirmations
   global.__red_rl = rl;
+
+  // Instant '/' menu trigger - opens live searchable menu the moment you type '/'
+  let slashMenuActive = false;
+  if (isInteractive) {
+    process.stdin.on('keypress', async (ch, key) => {
+      if (slashMenuActive) return;
+      // Only trigger when '/' is the first and only character
+      if (ch === '/' && rl.line === '/') {
+        slashMenuActive = true;
+        // Clear the '/' from readline buffer
+        rl.write(null, { ctrl: true, name: 'u' });
+        process.stdout.write('\n');
+
+        // Temporarily remove line listeners to prevent stale input
+        const savedListeners = rl.listeners('line').slice();
+        rl.removeAllListeners('line');
+
+        try {
+          const { showLiveSlashMenu } = await import('./ui/live-slash-menu.js');
+          rl.pause();
+          const selected = await showLiveSlashMenu();
+          rl.resume();
+
+          // Restore line listeners
+          for (const l of savedListeners) rl.on('line', l);
+
+          if (selected) {
+            await handleCommand(selected);
+          }
+        } catch (err) {
+          // Restore listeners even on error
+          for (const l of savedListeners) rl.on('line', l);
+          if (err && !err.message?.includes('User force closed') && !err.message?.includes('aborted')) {
+            console.log(chalk.dim(`  ${err.message}`));
+          }
+        } finally {
+          slashMenuActive = false;
+          if (!rl.closed && isInteractive) {
+            // Force-clear any stale buffer
+            rl.write(null, { ctrl: true, name: 'u' });
+            rl.setPrompt(renderUserPrompt(agent.mode, config.model));
+            rl.prompt(true);
+          }
+        }
+      }
+    });
+  }
+
   rl.on('close', () => {
     autoSaveSession();
     debugLog('rl.close event emitted');
@@ -275,19 +324,6 @@ export async function startRepl(cfg) {
 
   debugLog('stdin.isRaw:', process.stdin.isRaw, 'stdin.isTTY:', process.stdin.isTTY);
 
-  if (isInteractive) {
-    process.stdin.resume();
-    if (typeof process.stdin.setRawMode === 'function') {
-      try {
-        process.stdin.setRawMode(true);
-      } catch (err) {
-        debugLog('failed to set raw mode:', err.message);
-      }
-    }
-    rl.setPrompt('red> ');
-    rl.prompt();
-  }
-
   // Use event-based handling like Claude Code
   let isProcessing = false;
   let inputQueue = [];  // Queue for handling rapid inputs
@@ -301,8 +337,6 @@ export async function startRepl(cfg) {
       sigintTimer = null;
     }
   }
-
-  // We handle the prompt manually
 
   rl.on('line', async (input) => {
     debugLog('rl.on(line) triggered! input:', JSON.stringify(input));
@@ -352,8 +386,11 @@ export async function startRepl(cfg) {
             }
           } else {
             try {
+              const _t0 = Date.now();
               await agent.run(trimmed);
-              await printTokenBar();
+              const _elapsed = (Date.now() - _t0) / 1000;
+              await printTokenBar(_elapsed);
+              updateStatusBar();
               periodicAutoSave();
             } catch (err) {
               console.error(renderError(err.message));
@@ -376,6 +413,7 @@ export async function startRepl(cfg) {
     if (isInteractive && !rl.closed) {
       process.stdin.resume();
       rl.resume();
+      rl.setPrompt(renderUserPrompt(agent.mode, config.model));
       rl.prompt();
     }
   });
@@ -403,14 +441,15 @@ export async function startRepl(cfg) {
     }
   });
 
-  // Initial prompt
-  process.stdout.write('\nred> ');
+  // Show initial prompt AFTER all handlers are registered
+  if (isInteractive) {
+    rl.setPrompt(renderUserPrompt(agent.mode, config.model));
+    rl.prompt();
+  }
 }
 
 function setupInputHandler() {
-  // Slash menu is triggered by typing "/" as a command
-  // No need for keypress interception - user types "/" and hits enter
-  // This is simpler and avoids the UI duplication issues
+  // Ghost autocomplete disabled - conflicts with readline on Linux/WSL
 }
 
 function printBanner() {
@@ -432,7 +471,7 @@ function printBanner() {
   console.log('');
 }
 
-async function printTokenBar() {
+async function printTokenBar(elapsed = 0) {
   const stats = analytics.getSessionStats();
   const limits = getModelLimits(config.model || 'default');
   const contextLimit = limits?.context || 32000;
@@ -453,7 +492,20 @@ async function printTokenBar() {
   const empty = '░'.repeat(20 - Math.floor(ctxPercent / 5));
 
   const totalTokens = stats.tokensIn + stats.tokensOut;
-  console.log(chalk.dim(`\n  ctx ${filled}${empty} ${(contextUsed / 1000).toFixed(0)}k/${(contextLimit / 1000).toFixed(0)}k • $${stats.cost.toFixed(2)} • ${stats.toolCalls} tools • ${(totalTokens / 1000).toFixed(0)}k session`));
+  const speed = elapsed > 0 ? `${Math.round(stats.tokensOut / elapsed)} tok/s • ` : '';
+  console.log(chalk.dim(`\n  ${speed}ctx ${filled}${empty} ${(contextUsed / 1000).toFixed(0)}k/${(contextLimit / 1000).toFixed(0)}k • $${stats.cost.toFixed(4)} • ${stats.toolCalls} tools • ${(totalTokens / 1000).toFixed(1)}k total`));
+}
+
+function updateStatusBar() {
+  const stats = analytics.getSessionStats();
+  const toolCount = getModeTools(agent.tools, agent.mode).length;
+  statusBar.update({
+    model: config.model,
+    mode: agent.mode,
+    tokens: { used: stats.tokensIn + stats.tokensOut, max: getModelLimits(config.model)?.context || 32000 },
+    tools: toolCount
+  });
+  statusBar.show();
 }
 
 async function handleCommand(cmd) {
@@ -543,7 +595,7 @@ async function handleCommand(cmd) {
           config.provider = result.provider || config.provider;
           config.effort = result.effort;
           normalizeProviderModel(config);
-          if ([PROVIDERS.OPENAI, PROVIDERS.ANTHROPIC, PROVIDERS.GEMINI].includes(config.provider)) {
+          if ([PROVIDERS.OPENAI, PROVIDERS.ANTHROPIC, PROVIDERS.GEMINI, PROVIDERS.BEDROCK].includes(config.provider)) {
             config.baseUrl = null;
           }
           saveConfig(config);
@@ -1508,7 +1560,18 @@ async function handleCommand(cmd) {
 
     case '/setkey':
       const [provider, key] = args.split(' ');
-      if (key) {
+      if (provider === 'bedrock') {
+        const parts = args.split(' ').slice(1);
+        if (parts.length >= 1) {
+          config.apiKeys = config.apiKeys || {};
+          config.apiKeys.bedrock = parts[0];
+          config.awsRegion = parts[1] || config.awsRegion || 'us-east-1';
+          saveConfig(config);
+          console.log(renderSuccess(`Saved Bedrock API key (region: ${config.awsRegion})`));
+        } else {
+          console.log(renderError('Usage: /setkey bedrock <api-key> [region]'));
+        }
+      } else if (key) {
         config.apiKeys = config.apiKeys || {};
         config.apiKeys[provider] = key;
         saveConfig(config);
@@ -1533,8 +1596,18 @@ async function handleCommand(cmd) {
       break;
 
     case '/':
-      // Show interactive menu
-      showSlashMenu();
+      // Live searchable command menu (powered by @inquirer/prompts)
+      {
+        const { showLiveSlashMenu } = await import('./ui/live-slash-menu.js');
+        // Pause readline so inquirer can take over stdin
+        rl.pause();
+        const selected = await showLiveSlashMenu();
+        rl.resume();
+        if (selected) {
+          // Execute the selected command
+          await handleCommand(selected);
+        }
+      }
       break;
 
     case '/mcp':
@@ -1560,8 +1633,33 @@ async function handleCommand(cmd) {
       }
       break;
 
-    default:
-      console.log(renderError(`Unknown command: ${command}`));
+    default: {
+      // Try exact match from registry for arg hints
+      const regCmd = commandRegistry.getCommand(command);
+      if (regCmd && !args) {
+        const requiredArgs = (regCmd.args || []).filter(a => a.required);
+        if (requiredArgs.length > 0) {
+          const usage = requiredArgs.map(a => `<${a.name}>`).join(' ');
+          const optional = (regCmd.args || []).filter(a => !a.required).map(a => `[${a.name}]`).join(' ');
+          console.log(chalk.yellow(`\n  Usage: ${regCmd.name} ${usage} ${optional}`.trimEnd()));
+          console.log(chalk.dim(`  ${regCmd.description}\n`));
+          break;
+        }
+      }
+      // Fuzzy match for unknown commands
+      const suggestions = commandRegistry.search(command.slice(1));
+      if (suggestions.length > 0) {
+        const top = suggestions.slice(0, 5);
+        console.log(chalk.yellow(`\n  Unknown command: ${command}`));
+        console.log(chalk.dim('  Did you mean:'));
+        for (const s of top) {
+          console.log(`    ${s.icon || '  '} ${chalk.cyan(s.name)} ${chalk.dim('— ' + s.description.slice(0, 50))}`);
+        }
+        console.log('');
+      } else {
+        console.log(renderError(`Unknown command: ${command}`));
+      }
+    }
   }
 }
 
@@ -1596,24 +1694,24 @@ function parseAndLoadConversation(md) {
   }
 }
 
-function showSlashMenu() {
-  console.log(chalk.red.bold('\n╭─ 💀 Red CLI Commands ──────────────────────────────────────────╮'));
-  console.log(chalk.red('│'));
+async function showSlashMenu() {
+  return new Promise((resolve) => {
+    const lineListeners = rl.listeners('line');
+    rl.removeAllListeners('line');
+    rl.pause();
 
-  const commands = commandRegistry.getAll();
-  const categories = [...new Set(commands.map(c => c.category))];
+    slashMenu.show((selectedCommand) => {
+      // Restore readline
+      for (const listener of lineListeners) {
+        rl.on('line', listener);
+      }
+      rl.resume();
 
-  for (const cat of categories) {
-    const catCommands = commands.filter(c => c.category === cat);
-    console.log(chalk.bold(`│  ${cat}:`));
-    for (const cmd of catCommands) {
-      const aliases = cmd.aliases.length > 0 ? ` (${cmd.aliases.join(', ')})` : '';
-      console.log(chalk.cyan(`│    ${cmd.icon} ${cmd.name}${aliases}`));
-      console.log(chalk.dim(`│       ${cmd.description.substring(0, 50)}`));
-    }
-    console.log(chalk.red('│'));
-  }
-
-  console.log(chalk.red('╰──────────────────────────────────────────────────────────────╯'));
-  console.log(chalk.dim('  Type /command to run. Use Tab for autocomplete.\n'));
+      if (selectedCommand && selectedCommand !== '/') {
+        handleCommand(selectedCommand).then(() => resolve());
+      } else {
+        resolve();
+      }
+    });
+  });
 }

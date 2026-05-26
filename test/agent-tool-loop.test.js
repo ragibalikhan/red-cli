@@ -57,7 +57,7 @@ describe('Agent tool loop', () => {
       provider: 'openai',
       model: 'gpt-4o',
       maxTokens: 1024,
-      mode: 'code',
+      mode: 'recon',
       apiKeys: {}
     });
     const fakeProvider = new FakeProvider();
@@ -109,7 +109,7 @@ describe('Agent tool loop', () => {
       provider: 'nvidia',
       model: 'fake',
       maxTokens: 1024,
-      mode: 'code',
+      mode: 'recon',
       apiKeys: {}
     });
     const fakeProvider = new FakeProvider();

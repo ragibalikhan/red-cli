@@ -16,7 +16,7 @@ describe('Token Manager', () => {
     });
 
     it('should return exact count for Anthropic models', async () => {
-      const anthropicTokens = await estimateTokens(testSentence, 'claude-sonnet-4-20250729');
+      const anthropicTokens = await estimateTokens(testSentence, 'claude-sonnet-4-6');
       expect(anthropicTokens).toBe(10);
     });
 

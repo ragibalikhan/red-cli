@@ -1,5 +1,6 @@
 export { BaseProvider } from './base.js';
 export { AnthropicProvider } from './anthropic.js';
+export { BedrockProvider } from './bedrock.js';
 export { OpenAIProvider } from './openai.js';
 export { GeminiProvider } from './gemini.js';
 export { OllamaProvider } from './ollama.js';
@@ -9,6 +10,7 @@ import { NVIDIA_MODELS } from '../config.js';
 
 export const PROVIDER_CLASSES = {
   anthropic: () => import('./anthropic.js').then(m => m.AnthropicProvider),
+  bedrock: () => import('./bedrock.js').then(m => m.BedrockProvider),
   openai: () => import('./openai.js').then(m => m.OpenAIProvider),
   openrouter: () => import('./openai.js').then(m => m.OpenAIProvider),
   gemini: () => import('./gemini.js').then(m => m.GeminiProvider),
@@ -19,10 +21,17 @@ export const PROVIDER_CLASSES = {
 
 export const PROVIDER_MODELS = {
   anthropic: [
-    'claude-sonnet-4-20250729',
-    'claude-opus-4-20250729',
-    'claude-haiku-4-20250729',
-    'claude-3-5-sonnet-20241022'
+    'claude-opus-4-7',
+    'claude-sonnet-4-6',
+    'claude-opus-4-6',
+    'claude-opus-4-5-20251101'
+  ],
+  bedrock: [
+    'anthropic.claude-opus-4-7',
+    'anthropic.claude-haiku-4-5-20251001-v1:0',
+    'anthropic.claude-opus-4-6-v1',
+    'anthropic.claude-sonnet-4-6-20250514',
+    'anthropic.claude-3-5-sonnet-20241022-v2:0'
   ],
   openai: [
     'gpt-4o',
@@ -84,5 +93,5 @@ export function providerSupportsNativeTools(provider, model = '') {
     }
     return null;
   }
-  return ['anthropic', 'openai', 'openrouter', 'gemini', 'opencode'].includes(provider);
+  return ['anthropic', 'bedrock', 'openai', 'openrouter', 'gemini', 'opencode'].includes(provider);
 }

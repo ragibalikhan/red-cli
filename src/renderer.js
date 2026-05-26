@@ -74,8 +74,22 @@ function highlightCode(code) {
   }
 }
 
-export function renderUserPrompt() {
-  return chalk[theme.user].bold('red> ');
+const MODE_PROMPT_COLORS = {
+  recon: 'cyan',
+  scan: 'yellow',
+  exploit: 'red',
+  report: 'green',
+  osint: 'blue',
+  audit: 'magenta'
+};
+
+export function renderUserPrompt(mode, model) {
+  if (mode && model) {
+    const color = MODE_PROMPT_COLORS[mode] || 'cyan';
+    const shortModel = model.replace(/^anthropic\./, '').replace(/^claude-/, 'c-').replace(/-\d{8}.*$/, '');
+    return chalk[color]('[') + chalk[color].bold(mode) + chalk[color]('] ') + chalk.dim(shortModel) + ' ' + chalk[color].bold('❯ ');
+  }
+  return chalk.red.bold('red❯ ');
 }
 
 export function renderClaudeResponse(text) {
@@ -95,9 +109,23 @@ export function renderClaudeResponse(text) {
   return chalk[theme.assistant](result);
 }
 
+const TOOL_RISK = {
+  read_file: 'low', list_directory: 'low', search_files: 'low', web_search: 'low',
+  web_fetch: 'low', dns_lookup: 'low', cve_search: 'low', fingerprint: 'low',
+  write_file: 'med', edit_file: 'med', install_tool: 'med',
+  bash: 'high', port_scan: 'high', exploit: 'high', payload_gen: 'high', subdomain_enum: 'med'
+};
+
+const RISK_COLORS = { low: 'green', med: 'yellow', high: 'red' };
+const RISK_LABELS = { low: '●', med: '▲', high: '◆' };
+
 export function renderToolCall(toolName, input) {
+  const risk = TOOL_RISK[toolName] || 'med';
+  const color = RISK_COLORS[risk];
+  const icon = RISK_LABELS[risk];
   const inputStr = JSON.stringify(input, null, 2).slice(0, 200);
-  return box(`${chalk[theme.tool].bold('⚙️  ' + toolName)}\n${chalk[theme.dim](inputStr)}`, `Tool Call`);
+  const header = chalk[color].bold(`${icon} ${toolName}`);
+  return `\n  ${header}\n${chalk.dim('  ' + inputStr.split('\n').join('\n  '))}\n`;
 }
 
 export function renderToolResult(result) {
@@ -183,8 +211,8 @@ ${chalk[theme.user]('/history')}            Show last 10 messages
 ${chalk[theme.user]('/undo')}               Remove last message pair
 ${chalk[theme.user]('/retry')}              Re-send last user message
 ${chalk[theme.user]('/model <name>')}       Switch model (no args to list)
-${chalk[theme.user]('/mode <name>')}        Switch mode (code/review/ask/devops/docs/commit)
-${chalk[theme.user]('/provider <name>')}    Switch provider (anthropic/openai/gemini/ollama)
+${chalk[theme.user]('/mode <name>')}        Switch mode (recon/scan/exploit/report/osint/audit)
+${chalk[theme.user]('/provider <name>')}    Switch provider (anthropic/bedrock/openai/gemini/ollama)
 ${chalk[theme.user]('/add <file>')}         Add file to context
 ${chalk[theme.user]('/drop <file>')}        Remove file from context
 ${chalk[theme.user]('/context')}            Show project context
@@ -224,12 +252,12 @@ ${chalk[theme.user]('/setkey <p> <key>')}    Save API key
 ${chalk[theme.user]('/help')}               Show this help
 
 ${chalk.bold('Modes:')}
-  code    - Default. Full tool access
-  review  - Read-only, no writes
-  ask     - No tools, pure Q&A
-  devops  - Shell, git, docker focused
-  docs    - Documentation focused
-  commit  - One-shot commit message
+  recon   - Default. Reconnaissance, enumeration, fingerprinting
+  scan    - Vulnerability scanning, CVE lookup
+  exploit - Exploitation, payload generation
+  report  - Penetration test report generation
+  osint   - Passive OSINT, web search, DNS only
+  audit   - Security code audit, read-only analysis
 
 ${chalk.bold('Tips:')}
 - Auto-trigger planning for tasks with 20+ words or keywords: add, build, create, refactor

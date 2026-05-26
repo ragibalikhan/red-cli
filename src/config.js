@@ -73,6 +73,7 @@ export const DEFAULTS = {
 
 export const PROVIDERS = {
   ANTHROPIC: 'anthropic',
+  BEDROCK: 'bedrock',
   OPENAI: 'openai',
   OPENROUTER: 'openrouter',
   GEMINI: 'gemini',
@@ -101,7 +102,7 @@ export function normalizeProviderModel(config) {
   }
 
   // Clear stale provider-specific endpoint state when switching to a provider that does not use it.
-  if ([PROVIDERS.OPENAI, PROVIDERS.ANTHROPIC, PROVIDERS.GEMINI].includes(config.provider)) {
+  if ([PROVIDERS.OPENAI, PROVIDERS.ANTHROPIC, PROVIDERS.GEMINI, PROVIDERS.BEDROCK].includes(config.provider)) {
     if ([NVIDIA_DEFAULT_BASE_URL, OPENROUTER_DEFAULT_BASE_URL, OPENCODE_DEFAULT_BASE_URL, 'http://localhost:11434'].includes(config.baseUrl)) {
       console.warn(`\n[WARNING] Saved baseUrl (${config.baseUrl}) looks like a different provider endpoint for provider ${config.provider}. Clearing stale baseUrl for this session.`);
       config.baseUrl = null;
@@ -249,6 +250,7 @@ export function loadConfig(cliFlags = {}) {
     nvidia: process.env.NVIDIA_API_KEY,
     opencode: process.env.OPENCODE_API_KEY,
     ollama: null,
+    bedrock: process.env.AWS_BEDROCK_API_KEY || process.env.ANTHROPIC_API_KEY || null,
     brave: process.env.BRAVE_SEARCH_API_KEY,
     tavily: process.env.TAVILY_API_KEY
   };
@@ -295,6 +297,11 @@ export function loadConfig(cliFlags = {}) {
     config.baseUrl = process.env.OPENCODE_API_URL || OPENCODE_DEFAULT_BASE_URL;
   }
 
+  // Pass AWS region for bedrock provider
+  if (config.provider === 'bedrock') {
+    config.awsRegion = config.awsRegion || process.env.AWS_REGION || 'us-east-1';
+  }
+
   return config;
 }
 
@@ -311,6 +318,9 @@ export function getDefaultSystemPrompt() {
 }
 
 export function getModeConfig(mode) {
+  if (mode && !MODE_CONFIGS[mode]) {
+    console.warn(`\n[WARNING] Unknown mode "${mode}". Valid modes: recon, scan, exploit, report, osint, audit. Falling back to recon.\n`);
+  }
   return MODE_CONFIGS[mode] || MODE_CONFIGS.recon;
 }
 

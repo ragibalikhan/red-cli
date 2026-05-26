@@ -4,7 +4,7 @@ import readline from 'readline';
 export class StatusBar {
   constructor() {
     this.model = 'claude-sonnet-4';
-    this.mode = 'code';
+    this.mode = 'recon';
     this.tokens = { used: 0, max: 8000 };
     this.tools = 0;
     this.path = '';

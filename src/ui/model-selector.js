@@ -4,7 +4,7 @@ import { Agent } from '../agent.js';
 import { NVIDIA_MODELS } from '../config.js';
 
 const NVIDIA_SELECTABLE_MODELS = NVIDIA_MODELS.map((model, index) => ({
-  number: 22 + index,
+  number: 25 + index,
   label: `${model.name} (NVIDIA)`,
   model: model.id,
   provider: "nvidia",
@@ -19,7 +19,7 @@ const SELECTABLE_MODELS = [
   {
     number: 1,
     label: "Default (recommended)",
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6",
     provider: "anthropic",
     description: "Best balance of speed & intelligence",
     pricing: "$3/$15 per Mtok",
@@ -28,36 +28,67 @@ const SELECTABLE_MODELS = [
   },
   {
     number: 2,
-    label: "Opus",
-    model: "claude-opus-4-20250514",
+    label: "Opus 4.7",
+    model: "claude-opus-4-7",
     provider: "anthropic",
-    description: "Most powerful for complex tasks",
+    description: "Most powerful for complex tasks and agentic coding",
     pricing: "$15/$75 per Mtok",
     contextWindow: "200K",
     badge: null
   },
   {
     number: 3,
-    label: "Sonnet (1M context)",
-    model: "claude-sonnet-4-20250514",
+    label: "Opus 4.6",
+    model: "claude-opus-4-6",
     provider: "anthropic",
-    description: "Best for large codebases and long sessions",
-    pricing: "$3/$15 per Mtok",
-    contextWindow: "1M",
-    badge: null
-  },
-  {
-    number: 4,
-    label: "Haiku",
-    model: "claude-haiku-4-5-20251001",
-    provider: "anthropic",
-    description: "Fastest for quick answers",
-    pricing: "$1/$5 per Mtok",
+    description: "Strong reasoning and code generation",
+    pricing: "$15/$75 per Mtok",
     contextWindow: "200K",
     badge: null
   },
   {
+    number: 4,
+    label: "Opus 4.5",
+    model: "claude-opus-4-5-20251101",
+    provider: "anthropic",
+    description: "Reliable for complex analysis",
+    pricing: "$15/$75 per Mtok",
+    contextWindow: "200K",
+    badge: null
+  },
+  // AWS Bedrock Models
+  {
     number: 5,
+    label: "Opus 4.7 (Bedrock)",
+    model: "anthropic.claude-opus-4-7",
+    provider: "bedrock",
+    description: "AWS Bedrock · Most powerful, open access",
+    pricing: "AWS pricing",
+    contextWindow: "200K",
+    badge: "bedrock"
+  },
+  {
+    number: 6,
+    label: "Haiku 4.5 (Bedrock)",
+    model: "anthropic.claude-haiku-4-5-20251001-v1:0",
+    provider: "bedrock",
+    description: "AWS Bedrock · Fast & cheap, open access",
+    pricing: "AWS pricing",
+    contextWindow: "200K",
+    badge: "bedrock"
+  },
+  {
+    number: 7,
+    label: "Opus 4.6 (Bedrock)",
+    model: "anthropic.claude-opus-4-6-v1",
+    provider: "bedrock",
+    description: "AWS Bedrock · Strong reasoning",
+    pricing: "AWS pricing",
+    contextWindow: "200K",
+    badge: "bedrock"
+  },
+  {
+    number: 8,
     label: "GPT-4o",
     model: "gpt-4o",
     provider: "openai",
@@ -67,7 +98,7 @@ const SELECTABLE_MODELS = [
     badge: null
   },
   {
-    number: 6,
+    number: 9,
     label: "GPT-4 Turbo",
     model: "gpt-4-turbo",
     provider: "openai",
@@ -77,7 +108,7 @@ const SELECTABLE_MODELS = [
     badge: null
   },
   {
-    number: 7,
+    number: 10,
     label: "Gemini 2.5 Flash",
     model: "gemini-2.5-flash",
     provider: "gemini",
@@ -87,7 +118,7 @@ const SELECTABLE_MODELS = [
     badge: null
   },
   {
-    number: 8,
+    number: 11,
     label: "Gemini 2.5 Pro",
     model: "gemini-2.5-pro",
     provider: "gemini",
@@ -97,7 +128,7 @@ const SELECTABLE_MODELS = [
     badge: null
   },
   {
-    number: 9,
+    number: 12,
     label: "Gemini 2.5 Flash Lite",
     model: "gemini-2.5-flash-lite",
     provider: "gemini",
@@ -107,7 +138,7 @@ const SELECTABLE_MODELS = [
     badge: null
   },
   {
-    number: 10,
+    number: 13,
     label: "Gemini 2.0 Flash",
     model: "gemini-2.0-flash",
     provider: "gemini",
@@ -117,7 +148,7 @@ const SELECTABLE_MODELS = [
     badge: null
   },
   {
-    number: 11,
+    number: 14,
     label: "MiniMax M2.5 Free",
     model: "minimax-m2.5-free",
     provider: "opencode",
@@ -127,7 +158,7 @@ const SELECTABLE_MODELS = [
     badge: "zen"
   },
   {
-    number: 12,
+    number: 15,
     label: "DeepSeek V4 Flash Free",
     model: "deepseek-v4-flash-free",
     provider: "opencode",
@@ -137,7 +168,7 @@ const SELECTABLE_MODELS = [
     badge: "zen"
   },
   {
-    number: 13,
+    number: 16,
     label: "Nemotron 3 Super Free",
     model: "nemotron-3-super-free",
     provider: "opencode",
@@ -147,7 +178,7 @@ const SELECTABLE_MODELS = [
     badge: "zen"
   },
   {
-    number: 14,
+    number: 17,
     label: "Qwen3.6 Plus Free",
     model: "qwen3.6-plus-free",
     provider: "opencode",
@@ -157,7 +188,7 @@ const SELECTABLE_MODELS = [
     badge: "zen"
   },
   {
-    number: 15,
+    number: 18,
     label: "GLM-5 Free",
     model: "glm-5-free",
     provider: "opencode",
@@ -167,7 +198,7 @@ const SELECTABLE_MODELS = [
     badge: "zen"
   },
   {
-    number: 16,
+    number: 19,
     label: "Qwen3 Coder 480B",
     model: "qwen3-coder-480b",
     provider: "opencode",
@@ -177,7 +208,7 @@ const SELECTABLE_MODELS = [
     badge: "zen"
   },
   {
-    number: 17,
+    number: 20,
     label: "GPT-5.1 Codex Mini",
     model: "gpt-5.1-codex-mini",
     provider: "opencode",
@@ -187,7 +218,7 @@ const SELECTABLE_MODELS = [
     badge: "zen"
   },
   {
-    number: 18,
+    number: 21,
     label: "GPT-5.1 Codex",
     model: "gpt-5.1-codex",
     provider: "opencode",
@@ -197,7 +228,7 @@ const SELECTABLE_MODELS = [
     badge: "zen"
   },
   {
-    number: 19,
+    number: 22,
     label: "GPT-5.2",
     model: "gpt-5.2",
     provider: "opencode",
@@ -207,7 +238,7 @@ const SELECTABLE_MODELS = [
     badge: "zen"
   },
   {
-    number: 20,
+    number: 23,
     label: "ollama/llama3",
     model: "llama3",
     provider: "ollama",
@@ -217,7 +248,7 @@ const SELECTABLE_MODELS = [
     badge: "local"
   },
   {
-    number: 21,
+    number: 24,
     label: "Custom model",
     model: null,
     provider: null,
@@ -241,7 +272,7 @@ const EFFORT_LEVELS = [
 ];
 
 export class ModelSelector {
-  constructor(currentModel = 'claude-sonnet-4-20250514', currentEffort = 'high') {
+  constructor(currentModel = 'claude-sonnet-4-6', currentEffort = 'high') {
     this.models = SELECTABLE_MODELS;
     this.effortLevels = EFFORT_LEVELS;
     this.selectedIndex = 0;
@@ -408,6 +439,8 @@ export class ModelSelector {
         badgeStr = ' ' + chalk.green('[NVIDIA]');
       } else if (m.badge === 'zen') {
         badgeStr = ' ' + chalk.magenta('[OpenCode Zen]');
+      } else if (m.badge === 'bedrock') {
+        badgeStr = ' ' + chalk.yellow('[AWS Bedrock]');
       }
 
       // Description and pricing
@@ -452,7 +485,7 @@ export class ModelSelector {
   }
 }
 
-export async function selectModel(currentModel = 'claude-sonnet-4-20250514', currentEffort = 'high') {
+export async function selectModel(currentModel = 'claude-sonnet-4-6', currentEffort = 'high') {
   const selector = new ModelSelector(currentModel, currentEffort);
   return await selector.show();
 }

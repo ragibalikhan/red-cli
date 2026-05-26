@@ -14,22 +14,58 @@ export const COMMAND_CATEGORIES = {
 export const COMMANDS = [
   // 🎭 Modes
   {
-    name: '/backend-engineer',
-    aliases: ['/be'],
-    description: 'Acts as a senior backend engineer to design algorithms and solve complex problems',
-    longDescription: 'Switch to backend engineer persona. Provides deep expertise in algorithms, data structures, system design, and debugging. Will reason through problems rigorously and write production-quality code.',
+    name: '/recon',
+    aliases: [],
+    description: 'Switch to reconnaissance mode — enumeration, port scanning, fingerprinting',
+    longDescription: 'Switch to recon mode. Focus on information gathering: port scanning, DNS enumeration, subdomain discovery, technology fingerprinting, and service identification.',
     category: COMMAND_CATEGORIES.MODES,
-    icon: '🔧',
-    args: [{ name: 'task', required: false, description: 'Task to perform' }]
+    icon: '🔍',
+    args: [{ name: 'target', required: false, description: 'Target to recon' }]
   },
   {
-    name: '/frontend-design',
-    aliases: ['/fe'],
-    description: 'Create production-grade frontend interfaces with high design quality',
-    longDescription: 'Switch to frontend design persona. Creates distinctive, production-grade frontend interfaces with high design quality using modern frameworks and best practices.',
+    name: '/scan',
+    aliases: [],
+    description: 'Switch to vulnerability scanning mode — CVE lookup, nmap, nuclei',
+    longDescription: 'Switch to scan mode. Run vulnerability scanners, look up CVEs, analyze scan results, and prioritize findings by severity.',
     category: COMMAND_CATEGORIES.MODES,
-    icon: '🎨',
-    args: [{ name: 'task', required: false, description: 'Task to perform' }]
+    icon: '🛡️',
+    args: [{ name: 'target', required: false, description: 'Target to scan' }]
+  },
+  {
+    name: '/exploit',
+    aliases: ['/exp'],
+    description: 'Switch to exploitation mode — payloads, PoC, XSS/SQLi/LFI/SSRF',
+    longDescription: 'Switch to exploit mode. Find and run exploits against discovered vulnerabilities. Generate payloads (XSS, SQLi, LFI, SSRF, command injection). Verify exploitation with proof of concept.',
+    category: COMMAND_CATEGORIES.MODES,
+    icon: '💥',
+    args: [{ name: 'type', required: false, description: 'Exploit type (xss, sqli, lfi, ssrf, cmdi)' }, { name: 'target', required: false, description: 'Target URL or endpoint' }]
+  },
+  {
+    name: '/osint',
+    aliases: [],
+    description: 'Switch to passive OSINT mode — web search, DNS, public data only',
+    longDescription: 'Switch to OSINT mode. Passive information gathering only. No direct target contact. Use web search, DNS lookups, and public data sources.',
+    category: COMMAND_CATEGORIES.MODES,
+    icon: '🌐',
+    args: [{ name: 'target', required: false, description: 'Target to research' }]
+  },
+  {
+    name: '/audit',
+    aliases: [],
+    description: 'Switch to security code audit mode — read-only source analysis',
+    longDescription: 'Switch to audit mode. Analyze source code for security vulnerabilities: SQL injection, XSS, command injection, hardcoded secrets, insecure deserialization, authentication flaws.',
+    category: COMMAND_CATEGORIES.MODES,
+    icon: '👁️',
+    args: [{ name: 'path', required: false, description: 'Path to audit' }]
+  },
+  {
+    name: '/report',
+    aliases: [],
+    description: 'Switch to report mode — generate pentest reports with evidence',
+    longDescription: 'Switch to report mode. Generate professional penetration test reports with: executive summary, methodology, findings with severity, proof of concept evidence, and remediation recommendations.',
+    category: COMMAND_CATEGORIES.MODES,
+    icon: '📋',
+    args: []
   },
   {
     name: '/security',
@@ -49,61 +85,6 @@ export const COMMANDS = [
     icon: '🎯',
     args: [{ name: 'command', required: false, description: 'list, add, remove, or clear' }, { name: 'target', required: false, description: 'Domain, IP, wildcard, or CIDR' }]
   },
-  {
-    name: '/devops',
-    aliases: ['/do'],
-    description: 'Focus on infrastructure, CI/CD, Docker, Kubernetes, and cloud operations',
-    longDescription: 'Switch to DevOps persona. Expert in infrastructure automation, CI/CD pipelines, containerization, orchestration, and cloud-native technologies.',
-    category: COMMAND_CATEGORIES.MODES,
-    icon: '🚀',
-    args: [{ name: 'task', required: false, description: 'Task to perform' }]
-  },
-  {
-    name: '/architect',
-    aliases: ['/arch'],
-    description: 'System design mode — design scalable architectures and technical roadmaps',
-    longDescription: 'Switch to architect persona. Focuses on system design, scalability, high-level architecture decisions, and technical roadmaps.',
-    category: COMMAND_CATEGORIES.MODES,
-    icon: '🏗️',
-    args: [{ name: 'task', required: false, description: 'Task to perform' }]
-  },
-  {
-    name: '/reviewer',
-    aliases: ['/rev'],
-    description: 'Read-only code review mode — review code, suggest improvements, no writes',
-    longDescription: 'Switch to code reviewer persona. Reads and analyzes code, suggests improvements, identifies bugs and security issues. Will NOT modify files unless explicitly requested.',
-    category: COMMAND_CATEGORIES.MODES,
-    icon: '👁️',
-    args: [{ name: 'task', required: false, description: 'Task to perform' }]
-  },
-  {
-    name: '/ask',
-    aliases: [],
-    description: 'Pure Q&A mode with no tools — fast, cheap, no side effects',
-    longDescription: 'Switch to ask mode. Pure question answering without any tool execution. Fast, cost-effective, no side effects. Use for simple queries.',
-    category: COMMAND_CATEGORIES.MODES,
-    icon: '💬',
-    args: [{ name: 'question', required: true, description: 'Question to ask' }]
-  },
-  {
-    name: '/docs',
-    aliases: [],
-    description: 'Documentation mode — write and improve docs, READMEs, wikis',
-    longDescription: 'Switch to documentation mode. Focuses on writing and improving documentation, READMEs, wikis, and technical docs.',
-    category: COMMAND_CATEGORIES.MODES,
-    icon: '📝',
-    args: [{ name: 'task', required: false, description: 'Task to perform' }]
-  },
-  {
-    name: '/commit',
-    aliases: [],
-    description: 'One-shot: reads git diff, writes a conventional commit message, then exits',
-    longDescription: 'Single command that reads git diff, analyzes changes, and writes a conventional commit message. Best used outside REPL: red "write a commit message for current changes"',
-    category: COMMAND_CATEGORIES.MODES,
-    icon: '📦',
-    args: []
-  },
-
   // 🔴 Security
   {
     name: '/pentest',
@@ -413,11 +394,11 @@ export const COMMANDS = [
   {
     name: '/model',
     aliases: [],
-    description: 'Switch AI provider and model: /model anthropic/claude-opus-4',
+    description: 'Switch AI provider and model: /model anthropic/claude-opus-4-7',
     longDescription: 'Switch the AI provider and model. Shows available models when used without arguments.',
     category: COMMAND_CATEGORIES.CONFIG,
     icon: '🧠',
-    args: [{ name: 'model', required: false, description: 'Model (e.g., anthropic/claude-sonnet-4)' }]
+    args: [{ name: 'model', required: false, description: 'Model (e.g., anthropic/claude-sonnet-4-6)' }]
   },
   {
     name: '/update-config',

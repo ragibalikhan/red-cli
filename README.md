@@ -1,4 +1,4 @@
-# Red CLI — Cybersecurity CLI
+# Red CLI — Autonomous Red Team Platform
 
 > An open-source **autonomous cybersecurity testing platform** for the terminal. Find vulnerabilities, exploit them, and prove impact.
 
@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js 18+](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org/)
 
-Combines **7 AI providers** and **40+ models** with autonomous penetration testing, vulnerability scanning, exploitation tooling, and smart intent detection — all from your terminal.
+Combines **8 AI providers** and **40+ models** with autonomous penetration testing, vulnerability scanning, exploitation tooling, and smart intent detection — all from your terminal.
 
 [Features](#features) · [Installation](#installation) · [Quick Start](#quick-start) · [Modes](#modes) · [Commands](#command-reference) · [Configuration](#configuration)
 
@@ -14,11 +14,19 @@ Combines **7 AI providers** and **40+ models** with autonomous penetration testi
 
 ## What is Red CLI?
 
-Red CLI is a terminal-native AI penetration testing assistant. It auto-detects your intent from plain English — type "scan example.com" and it switches to scan mode, runs nmap, looks up CVEs, and reports findings. Type "exploit that SQLi" and it generates payloads and tests them.
+Red CLI is a terminal-native AI penetration testing assistant with a modern **React/Ink-based UI**. It auto-detects your intent from plain English — type "scan example.com" and it switches to scan mode, runs nmap, looks up CVEs, and reports findings. Type "exploit that SQLi" and it generates payloads and tests them.
 
 ---
 
 ## Features
+
+### 🖥️ Modern Terminal UI (Ink-powered)
+
+- **Instant slash menu** — type `/` to open a live searchable command menu
+- **Mode-colored prompt** — visual feedback for current security mode
+- **Live streaming** — see AI tokens as they arrive
+- **Tool call cards** — risk-colored indicators (🟢 read, 🟡 write, 🔴 shell/exploit)
+- **Thinking indicator** — elapsed time, mode, message count
 
 ### 🛡️ Cybersecurity-Focused Modes
 
@@ -33,12 +41,11 @@ Intent-based mode auto-detection — just describe what you want to do:
 | `osint` | Passive OSINT — web search, DNS lookups, public data only |
 | `audit` | Security code audit — read-only source code vulnerability analysis |
 
-Auto-detection example: `"scan example.com for open ports"` → automatically switches to `scan` mode.
-
-### 🤖 Multi-Provider AI Support (7 Providers, 40+ Models)
+### 🤖 Multi-Provider AI Support (8 Providers, 40+ Models)
 
 | Provider | Models | Pricing |
 |----------|--------|---------|
+| **AWS Bedrock** | Claude Opus 4.7, Haiku 4.5 | AWS pricing |
 | **Anthropic** | Claude Sonnet 4, Opus 4, Haiku 4 | From $1/Mtok |
 | **OpenAI** | GPT-4o, GPT-4o-mini, GPT-4 Turbo | From $0.15/Mtok |
 | **Google Gemini** | Gemini 2.5 Pro/Flash/Flash-Lite, 2.0 Flash | Free tier + from $0.175/Mtok |
@@ -119,15 +126,6 @@ red --auto "pentest https://target.com"
 # Generate XSS payloads
 red "generate xss payloads"
 
-# Look up CVEs for a component
-red "cve search nginx 1.18"
-
-# Subdomain enumeration
-red "find subdomains for example.com"
-
-# Generate a pentest report
-red "generate report of findings"
-
 # Use a specific model
 red --model gemini-2.5-flash "scan example.com"
 ```
@@ -151,17 +149,7 @@ Red auto-detects your intent from your input — but you can also switch manuall
 
 ## Command Reference
 
-### General
-
-| Command | Description |
-|---------|-------------|
-| `/exit`, `/quit` | Exit the CLI |
-| `/clear` | Clear conversation history |
-| `/history` | Show last 10 messages |
-| `/help` | Show all commands |
-| `/mode <name>` | Switch mode (recon/scan/exploit/report/osint/audit) |
-| `/model` | Open model selector UI |
-| `/provider <name>` | Switch AI provider |
+Type `/` in the REPL to open the live searchable command menu, or use commands directly:
 
 ### Security Testing
 
@@ -172,21 +160,24 @@ Red auto-detects your intent from your input — but you can also switch manuall
 | `/recon <target>` | Reconnaissance & enumeration |
 | `/exploit <type> <target>` | Quick exploitation (xss, sqli, lfi, ports, etc.) |
 | `/cve <CVE-ID>` | Look up a specific CVE |
-| `/cves <component> [version]` | Search CVEs for a component |
 | `/secrets [path]` | Scan for leaked secrets |
-| `/bugs [path]` | Find logic/security bugs |
-| `/report` | Generate penetration test report |
 | `/scope add <target>` | Authorize a target for testing |
-| `/targets` | List all scanned targets |
-| `/tech` | Show discovered technologies |
-| `/continue <target>` | Continue from previous scan |
+| `/report` | Generate penetration test report |
+
+### Model & Config
+
+| Command | Description |
+|---------|-------------|
+| `/model` | Open model selector |
+| `/mode <name>` | Switch mode (recon/scan/exploit/report/osint/audit) |
+| `/provider <name>` | Switch AI provider |
+| `/setkey <provider> <key>` | Save API key |
 
 ### Planning & Auto
 
 | Command | Description |
 |---------|-------------|
 | `/plan <task>` | Create and execute a plan |
-| `/run <task>` | Run directly without planning |
 | `/auto <task>` | Run in autonomous mode |
 | `/goal <condition>` | Run with goal-based completion |
 
@@ -197,13 +188,10 @@ Red auto-detects your intent from your input — but you can also switch manuall
 | `/doctor` | Run diagnostics |
 | `/usage` | Show usage statistics |
 | `/tokens` | Show current session tokens |
-| `/install-tools` | Install security tools (nmap, nikto, etc.) |
 | `/compact` | Compact conversation to save tokens |
-| `/parallel task1 \| task2` | Run tasks in parallel |
-| `/memory` | Show all memories |
 | `/save [file]` | Save session to file |
-| `/resume` | Resume a previous session |
-| `/plugins` | List installed plugins |
+| `/clear` | Clear conversation |
+| `/help` | Show help |
 
 ---
 
@@ -222,29 +210,34 @@ Create `~/.red/config.json`:
 
 ```json
 {
-  "provider": "openai",
-  "model": "gpt-4o",
+  "provider": "bedrock",
+  "model": "anthropic.claude-opus-4-7",
   "mode": "recon",
+  "awsRegion": "us-east-1",
   "apiKeys": {
-    "anthropic": "sk-ant-...",
+    "bedrock": "your-bedrock-api-key",
     "openai": "sk-...",
     "gemini": "...",
-    "nvidia": "nvapi-...",
-    "opencode": "sk-..."
-  },
-  "effort": "high",
-  "mcpServers": []
+    "nvidia": "nvapi-..."
+  }
 }
 ```
+
+### AWS Bedrock Setup
+
+1. Get an API key from [AWS Console → Bedrock → API Keys](https://console.aws.amazon.com/bedrock/home#/api-keys)
+2. Run: `/setkey bedrock <your-api-key> us-east-1`
+3. Select a Bedrock model via `/model`
 
 ### Environment Variables
 
 ```bash
+export AWS_BEDROCK_API_KEY="..."
+export AWS_REGION="us-east-1"
 export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENAI_API_KEY="sk-..."
 export GEMINI_API_KEY="..."
 export NVIDIA_API_KEY="nvapi-..."
-export OPENCODE_API_KEY="sk-..."
 ```
 
 ---
@@ -259,8 +252,7 @@ Options:
   --model <name>         Set model
   --mode <name>          Set mode (recon/scan/exploit/report/osint/audit)
   --provider <name>      Set provider
-  --effort <level>       Set effort level (high/medium/low/min)
-  --no-tools             Disable tools (ask mode)
+  --no-tools             Disable tools (chat only)
   --auto                 Run in autonomous mode
   --max-iter <n>         Max iterations for auto mode
 ```

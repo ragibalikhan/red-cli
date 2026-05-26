@@ -7,13 +7,15 @@ import { renderClaudeResponse, renderToolCall, renderToolResult, renderError, re
 import { createTokenManager, getModelLimits, estimateTokens, calculateMessageTokens } from './token-manager.js';
 import { parseToolCallsFromText, getTextToolCallPrompt, getTextToolSchemaPrompt } from './tool-call-parser.js';
 import { createMemory } from './memory.js';
+import { EventEmitter } from 'events';
 import ora from 'ora';
 import chalk from 'chalk';
 
-export class Agent {
+export class Agent extends EventEmitter {
   constructor(config, analytics = null) {
+    super();
     this.config = config;
-    this.mode = config.mode || 'code';
+    this.mode = config.mode || 'recon';
 
     // Initialize token manager with model-specific limits
     this.tokenManager = createTokenManager(config.model || 'gpt-4o');
@@ -134,11 +136,29 @@ export class Agent {
         this.abortController = new AbortController();
         const signal = options.signal || this.abortController.signal;
 
-        const spinner = ora({ text: 'Thinking...', spinner: 'dots' }).start();
+        // Use no-op spinner when running silently (e.g., from Ink REPL which renders its own UI)
+        const isSilent = this.config.silent === true;
+        let spinner;
+        if (isSilent) {
+          spinner = { text: '', isSpinning: false };
+          spinner.start = () => spinner;
+          spinner.stop = () => spinner;
+          spinner.succeed = () => spinner;
+          spinner.fail = () => spinner;
+        } else {
+          spinner = ora({ text: chalk.dim(`Thinking... ${this.mode} mode`), spinner: 'dots' }).start();
+        }
+        const spinnerStart = Date.now();
+        const msgCount = this.messages.length;
+        const spinnerTimer = isSilent ? null : setInterval(() => {
+          const elapsed = ((Date.now() - spinnerStart) / 1000).toFixed(1);
+          spinner.text = chalk.dim(`Thinking... ${elapsed}s │ ${this.mode} │ ${msgCount} msgs`);
+        }, 100);
 
         try {
             await this.runLoop(spinner, { signal });
         } catch (err) {
+            if (spinnerTimer) clearInterval(spinnerTimer);
             if (spinner && spinner.isSpinning) spinner.stop();
             if (err.name === 'AbortError' || /abort(ed)?/i.test(err.message || '')) {
                 return;
@@ -147,13 +167,14 @@ export class Agent {
             this.messages.push({ role: 'assistant', content: errorText });
             process.stdout.write('\n' + chalk.red(errorText) + '\n');
         } finally {
-            if (!isOneShot) spinner.stop();
+            if (spinnerTimer) clearInterval(spinnerTimer);
+            if (!isOneShot && spinner && spinner.isSpinning) spinner.stop();
             this.abortController = null;
         }
     }
 
   async runLoop(spinner, options = {}) {
-    const modeTools = getModeTools(this.tools, this.mode);
+    const modeTools = this.config.noTools ? [] : getModeTools(this.tools, this.mode);
     const nativeToolsSupported = this.provider?.supportsNativeTools === true;
     const requestTools = nativeToolsSupported ? modeTools : [];
     const toolDepth = options.toolDepth || 0;
@@ -203,12 +224,13 @@ export class Agent {
       for await (const chunk of this.provider.streamMessage(allMessagesFinal, requestTools, { signal: options.signal })) {
         if (chunk.type === 'text') {
           accumulatedText += chunk.content;
+          this.emit('chunk', chunk.content);
           if (nativeToolsSupported && !hasOutputStarted) {
             hasOutputStarted = true;
             spinner.stop();
-            process.stdout.write('\n');
+            if (!this.config.silent) process.stdout.write('\n');
           }
-          if (nativeToolsSupported) {
+          if (nativeToolsSupported && !this.config.silent) {
             process.stdout.write(chalk.white(chunk.content));
           }
         } else if (chunk.type === 'usage') {
@@ -216,6 +238,7 @@ export class Agent {
         } else if (chunk.type === 'done') {
           this._consecutiveProviderErrors = 0;
           const responseText = chunk.text ?? accumulatedText;
+          const reasoningContent = chunk.reasoningContent;
           let toolUses = chunk.toolUses || [];
 
           if (!nativeToolsSupported && toolUses.length === 0) {
@@ -248,7 +271,7 @@ export class Agent {
             if (this._lastToolSig && this._lastToolSig === sig) {
               console.log(chalk.yellow('\n  ⚠️  Tool call loop detected (same tools as previous round). Stopping.\n'));
               if (responseText && nativeToolsSupported) {
-                this.messages.push({ role: 'assistant', content: responseText });
+                this.messages.push({ role: 'assistant', content: responseText, ...(reasoningContent && { reasoning_content: reasoningContent }) });
               }
               this._lastToolSig = null;
               return;
@@ -257,7 +280,7 @@ export class Agent {
 
             if (toolDepth >= maxToolRounds) {
               if (responseText && nativeToolsSupported) {
-                this.messages.push({ role: 'assistant', content: responseText });
+                this.messages.push({ role: 'assistant', content: responseText, ...(reasoningContent && { reasoning_content: reasoningContent }) });
               }
               console.log(renderError(`Stopped after ${maxToolRounds} tool rounds to avoid an infinite loop.`));
               return;
@@ -282,7 +305,8 @@ export class Agent {
 
             this.messages.push({
               role: 'assistant',
-              content: assistantContent
+              content: assistantContent,
+              ...(reasoningContent && { reasoning_content: reasoningContent })
             });
 
             await this.handleToolCalls(toolUses, modeTools, spinner);
@@ -302,13 +326,14 @@ export class Agent {
             ).length;
             if (repeats >= 2) {
               console.log(chalk.yellow('\n  ⚠️  Detected repetitive response. Stopping to avoid loop.\n'));
-              this.messages.push({ role: 'assistant', content: responseText || '' });
+              this.messages.push({ role: 'assistant', content: responseText || '', ...(reasoningContent && { reasoning_content: reasoningContent }) });
               return;
             }
           }
 
           // Save assistant response into conversation history so follow-up questions keep context.
-          this.messages.push({ role: 'assistant', content: responseText || '' });
+          this.messages.push({ role: 'assistant', content: responseText || '', ...(reasoningContent && { reasoning_content: reasoningContent }) });
+          this.emit('done', { text: responseText, usage: providerUsage });
           return;
         }
       }
@@ -317,22 +342,24 @@ export class Agent {
       if (err.name === 'AbortError' || /abort(ed)?/i.test(err.message || '')) {
         return;
       }
-      const is5xx = /5\d\d/.test(err.message || '');
-      const shouldAsk = is5xx && typeof this.onConfirm === 'function';
-      const askRetry = shouldAsk
-        ? await this.onConfirm(`\n  ⚠️  Provider returned (${err.message.match(/\d{3}/)?.[0] || '5xx'}). Retry? (y/n): `)
-        : true;
-      if (!askRetry) {
-        console.log(chalk.red('\n  ✗ Stopped by user.\n'));
-        this.messages.push({ role: 'assistant', content: `Cancelled: provider returned ${err.message.match(/\d{3}/)?.[0] || '5xx'} error.` });
+
+      const statusCode = err.message.match(/\d{3}/)?.[0];
+      const isAuthError = statusCode === '401' || statusCode === '403';
+
+      // Don't retry auth/permission errors — they won't resolve
+      if (isAuthError) {
+        console.log(chalk.red(`\n  ✗ Permission denied (${statusCode}). Check model access in your provider's console.`));
+        console.log(chalk.dim(`  ${err.message.slice(0, 200)}\n`));
+        this.messages.push({ role: 'assistant', content: `Permission error (${statusCode}). Check your API key and model access.` });
         this._consecutiveProviderErrors = 0;
         return;
       }
+
       this._consecutiveProviderErrors++;
       if (this._consecutiveProviderErrors >= 3) {
         console.log(chalk.red(`\n  ✗ ${this._consecutiveProviderErrors} consecutive provider errors. Stopping.`));
         console.log(chalk.yellow('  💡 Tip: Check your API key, network, or run /compact to reduce context.\n'));
-        this.messages.push({ role: 'assistant', content: `Stopped after ${this._consecutiveProviderErrors} consecutive provider errors. Please check your API key or network, or run /compact to reduce context.` });
+        this.messages.push({ role: 'assistant', content: `Stopped after ${this._consecutiveProviderErrors} consecutive provider errors.` });
         this._consecutiveProviderErrors = 0;
         return;
       }
@@ -369,9 +396,11 @@ export class Agent {
 
       if (!toolDef) {
         result = { error: `Tool not available in ${this.mode} mode: ${toolUse.name}` };
-        console.log(renderError(result.error));
+        this.emit('toolCall', { name: toolUse.name, input: toolUse.input, error: true });
+        if (!this.config.silent) console.log(renderError(result.error));
       } else {
-        console.log(renderToolCall(toolUse.name, toolUse.input));
+        this.emit('toolCall', { name: toolUse.name, input: toolUse.input });
+        if (!this.config.silent) console.log(renderToolCall(toolUse.name, toolUse.input));
 
         try {
           result = await executeTool(toolUse.name, toolUse.input || {}, {
@@ -383,8 +412,9 @@ export class Agent {
           result = { error: err.message || String(err) };
         }
 
-        console.log(renderToolResult(result));
-        console.log('');
+        this.emit('toolResult', { name: toolUse.name, result });
+        if (!this.config.silent) console.log(renderToolResult(result));
+        if (!this.config.silent) console.log('');
       }
 
       this.toolCallCount++;
@@ -463,9 +493,9 @@ export class Agent {
     this.config.model = newConfig.model;
     this.config.provider = newConfig.provider;
 
-    // Reinitialize provider to ensure the new model and provider are used
+    // Reset provider so initProvider creates a fresh one
+    this.provider = null;
     this._initPromise = this.initProvider();
-    console.log(renderSuccess(`Switched to model: ${this.model}`));
   }
 
   setMode(modeName) {

@@ -517,9 +517,9 @@ Options:
   --version              Show version
   --help, -h             Show this help
   --model <name>         Set model
-  --mode <name>          Set mode (code/review/ask/devops/docs/commit)
+  --mode <name>          Set mode (recon/scan/exploit/report/osint/audit)
   --provider <name>      Set provider
-  --no-tools             Disable tools (ask mode)
+  --no-tools             Disable tools (chat only)
   --auto                 Run in autonomous mode
   --test-redteam         Run Red Team full regression tests
   --max-iter <n>         Max iterations for auto mode (default: 50)
@@ -589,7 +589,7 @@ if (flags['test-redteam']) {
   if (flags.model) cliFlags.model = flags.model;
   if (flags.mode) cliFlags.mode = flags.mode;
   if (flags.provider) cliFlags.provider = flags.provider;
-  if (flags['no-tools']) cliFlags.mode = 'ask';
+  if (flags['no-tools']) cliFlags.noTools = true;
   const maxIterations = flags.maxIter || flags['max-iter'];
   if (maxIterations) cliFlags.maxIterations = parseInt(maxIterations, 10);
   if (flags.auto) cliFlags.autoMode = true;
@@ -603,8 +603,16 @@ if (flags['test-redteam']) {
   analytics.startSession(config.model, config.provider);
 
   if (positional.length === 0) {
-    const { startRepl } = await import('../src/repl.js');
-    startRepl(config);
+    // Use new Ink-based REPL by default if running in a real terminal
+    // Falls back to legacy REPL for non-TTY (piped input) or if RED_LEGACY_REPL=1
+    const useInk = process.stdin.isTTY === true && !process.env.RED_LEGACY_REPL;
+    if (useInk) {
+      const { startInkRepl } = await import('../src/ink-repl.js');
+      await startInkRepl(config);
+    } else {
+      const { startRepl } = await import('../src/repl.js');
+      startRepl(config);
+    }
   } else {
     const userMessage = positional.join(' ');
 

@@ -10,10 +10,10 @@ const MODEL_LIMITS = {
   'gpt-3.5-turbo': { context: 16385, maxOutput: 4096 },
 
   // Anthropic
-  'claude-sonnet-4-20250729': { context: 200000, maxOutput: 8192 },
-  'claude-opus-4-20250729': { context: 200000, maxOutput: 8192 },
-  'claude-haiku-4-20250729': { context: 200000, maxOutput: 8192 },
-  'claude-3-5-sonnet-20241022': { context: 200000, maxOutput: 8192 },
+  'claude-opus-4-7': { context: 200000, maxOutput: 8192 },
+  'claude-sonnet-4-6': { context: 200000, maxOutput: 8192 },
+  'claude-opus-4-6': { context: 200000, maxOutput: 8192 },
+  'claude-opus-4-5-20251101': { context: 200000, maxOutput: 8192 },
 
   // Gemini 2.5 (stable)
   'gemini-2.5-pro': { context: 1000000, maxOutput: 65536 },

@@ -68,7 +68,9 @@ export class OpenAIProvider extends BaseProvider {
         if (msg.role === 'system') {
           result.push(msg);
         } else {
-          result.push({ role: msg.role, content: msg.content });
+          const formatted = { role: msg.role, content: msg.content };
+          if (msg.reasoning_content) formatted.reasoning_content = msg.reasoning_content;
+          result.push(formatted);
         }
         continue;
       }
@@ -171,10 +173,15 @@ export class OpenAIProvider extends BaseProvider {
 
     let accumulatedContent = '';
     const toolCallsByIndex = [];
+    let accumulatedReasoning = '';
 
     for await (const chunk of response) {
       const delta = chunk.choices[0]?.delta;
       if (!delta) continue;
+
+      if (delta.reasoning_content) {
+        accumulatedReasoning += delta.reasoning_content;
+      }
 
       if (delta.content) {
         accumulatedContent += delta.content;
@@ -192,7 +199,7 @@ export class OpenAIProvider extends BaseProvider {
        .filter(tc => tc?.function?.name)
        .map(tc => this.parseToolCall(tc));
 
-     yield { type: 'done', text: accumulatedContent, toolUses: this.extractToolCalls(parsedToolCalls, accumulatedContent) };
+     yield { type: 'done', text: accumulatedContent, reasoningContent: accumulatedReasoning || undefined, toolUses: this.extractToolCalls(parsedToolCalls, accumulatedContent) };
 
      // Get final usage from OpenAI
      const finalResponse = await response;

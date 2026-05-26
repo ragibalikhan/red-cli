@@ -1,6 +1,6 @@
 {
   "name": "redai-cli",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "description": "An open-source autonomous cybersecurity testing CLI for the terminal",
   "type": "module",
   "bin": {
@@ -41,13 +41,18 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@anthropic-ai/tokenizer": "^0.0.4",
     "@google/generative-ai": "^0.21.0",
+    "@inquirer/prompts": "^8.4.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chalk": "^5.3.0",
     "cli-highlight": "^2.1.11",
     "fuse.js": "^7.3.0",
     "gpt-tokenizer": "^3.4.0",
+    "ink": "^5.2.1",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
     "openai": "^4.77.0",
-    "ora": "^8.0.1"
+    "ora": "^8.0.1",
+    "react": "^18.3.1"
   },
   "devDependencies": {
     "eslint": "^9.0.0",

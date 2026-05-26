@@ -35,7 +35,10 @@ export class OpenCodeProvider extends BaseProvider {
         if (msg.role === 'system') {
           result.push(msg);
         } else {
-          result.push({ role: msg.role, content: msg.content });
+          const formatted = { role: msg.role, content: msg.content };
+          // Preserve reasoning_content for DeepSeek thinking mode
+          if (msg.reasoning_content) formatted.reasoning_content = msg.reasoning_content;
+          result.push(formatted);
         }
         continue;
       }
@@ -118,22 +121,29 @@ export class OpenCodeProvider extends BaseProvider {
     const flatMessages = formattedMessages.flat();
     const client = this.getClient();
 
-    const response = await client.chat.completions.create({
+    const params = {
       model: this.model,
       messages: flatMessages,
       max_tokens: this.maxTokens,
       stream: true,
       tools: tools.length > 0 ? this.formatTools(tools) : undefined
-    }, {
+    };
+
+    const response = await client.chat.completions.create(params, {
       signal: options.signal
     });
 
     let accumulatedContent = '';
+    let accumulatedReasoning = '';
     const toolCallsByIndex = [];
 
     for await (const chunk of response) {
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) continue;
+
+      if (delta.reasoning_content) {
+        accumulatedReasoning += delta.reasoning_content;
+      }
 
       if (delta.content) {
         accumulatedContent += delta.content;
@@ -151,7 +161,7 @@ export class OpenCodeProvider extends BaseProvider {
       .filter(tc => tc?.function?.name)
       .map(tc => this.parseToolCall(tc));
 
-    yield { type: 'done', text: accumulatedContent, toolUses: this.extractToolCalls(parsedToolCalls, accumulatedContent), usage: { outputTokens: accumulatedContent.length / 4 } };
+    yield { type: 'done', text: accumulatedContent, reasoningContent: accumulatedReasoning || undefined, toolUses: this.extractToolCalls(parsedToolCalls, accumulatedContent), usage: { outputTokens: accumulatedContent.length / 4 } };
   }
 
   async sendMessage(messages, tools = [], options = {}) {
