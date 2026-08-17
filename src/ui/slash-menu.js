@@ -166,7 +166,6 @@ export class SlashMenu {
     if (selected) {
       this.query = selected.name;
       this.filter();
-      this.render();
     }
   }
 
@@ -286,6 +285,14 @@ export class SlashMenu {
 
     const searchTerm = query.toLowerCase().replace('/', '');
     const lowerText = text.toLowerCase();
+
+    // Try substring match first
+    const substringIdx = lowerText.indexOf(searchTerm);
+    if (substringIdx !== -1) {
+      return text.slice(0, substringIdx) + chalk.yellow.bold(text.slice(substringIdx, substringIdx + searchTerm.length)) + text.slice(substringIdx + searchTerm.length);
+    }
+
+    // Fall back to individual character matching
     let result = '';
     let lastIdx = 0;
 

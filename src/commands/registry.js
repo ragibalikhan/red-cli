@@ -14,10 +14,19 @@ export const COMMAND_CATEGORIES = {
 export const COMMANDS = [
   // 🎭 Modes
   {
+    name: '/mode',
+    aliases: [],
+    description: 'Switch AI agent mode — recon, scan, exploit, report, osint, audit',
+    longDescription: 'Switch the AI operating mode. Changes system prompt, available tools, and behavior.\n\nUsage:\n  /mode            — show available modes\n  /mode recon      — switch to recon mode (full toolkit)\n  /mode scan       — switch to scan mode\n  /mode exploit    — switch to exploit mode\n  /mode report     — switch to report mode\n  /mode osint      — switch to OSINT mode (passive only)\n  /mode audit      — switch to audit mode (code review)',
+    category: COMMAND_CATEGORIES.MODES,
+    icon: '🔄',
+    args: [{ name: 'mode', required: false, description: 'recon, scan, exploit, report, osint, audit' }]
+  },
+  {
     name: '/recon',
     aliases: [],
-    description: 'Switch to reconnaissance mode — enumeration, port scanning, fingerprinting',
-    longDescription: 'Switch to recon mode. Focus on information gathering: port scanning, DNS enumeration, subdomain discovery, technology fingerprinting, and service identification.',
+    description: 'Switch to recon mode — or run recon on a target: /recon <target>',
+    longDescription: 'Switch to recon mode (full toolkit). With a target, also runs reconnaissance immediately.\n\nUsage:\n  /recon           — switch to recon mode\n  /recon <target>  — switch to recon mode + run recon on target',
     category: COMMAND_CATEGORIES.MODES,
     icon: '🔍',
     args: [{ name: 'target', required: false, description: 'Target to recon' }]
@@ -25,8 +34,8 @@ export const COMMANDS = [
   {
     name: '/scan',
     aliases: [],
-    description: 'Switch to vulnerability scanning mode — CVE lookup, nmap, nuclei',
-    longDescription: 'Switch to scan mode. Run vulnerability scanners, look up CVEs, analyze scan results, and prioritize findings by severity.',
+    description: 'Switch to scan mode — or scan a target: /scan <target>',
+    longDescription: 'Switch to vulnerability scanning mode. With a target, also runs a vuln scan immediately.\n\nUsage:\n  /scan            — switch to scan mode\n  /scan <target>   — switch to scan mode + run vuln scan on target',
     category: COMMAND_CATEGORIES.MODES,
     icon: '🛡️',
     args: [{ name: 'target', required: false, description: 'Target to scan' }]
@@ -34,8 +43,8 @@ export const COMMANDS = [
   {
     name: '/exploit',
     aliases: ['/exp'],
-    description: 'Switch to exploitation mode — payloads, PoC, XSS/SQLi/LFI/SSRF',
-    longDescription: 'Switch to exploit mode. Find and run exploits against discovered vulnerabilities. Generate payloads (XSS, SQLi, LFI, SSRF, command injection). Verify exploitation with proof of concept.',
+    description: 'Switch to exploit mode — or run exploit: /exploit <type> <target>',
+    longDescription: 'Switch to exploitation mode. With type + target, also runs the exploit immediately.\n\nUsage:\n  /exploit                — switch to exploit mode + show available types\n  /exploit xss <url>      — switch to exploit mode + run XSS test\n  /exploit sqli <url>     — switch to exploit mode + run SQLi test',
     category: COMMAND_CATEGORIES.MODES,
     icon: '💥',
     args: [{ name: 'type', required: false, description: 'Exploit type (xss, sqli, lfi, ssrf, cmdi)' }, { name: 'target', required: false, description: 'Target URL or endpoint' }]
@@ -43,8 +52,8 @@ export const COMMANDS = [
   {
     name: '/osint',
     aliases: [],
-    description: 'Switch to passive OSINT mode — web search, DNS, public data only',
-    longDescription: 'Switch to OSINT mode. Passive information gathering only. No direct target contact. Use web search, DNS lookups, and public data sources.',
+    description: 'Switch to OSINT mode — or run OSINT on a target: /osint <target>',
+    longDescription: 'Switch to passive OSINT mode (web search, DNS, public data only). With a target, also runs passive recon immediately.\n\nUsage:\n  /osint            — switch to OSINT mode\n  /osint <target>   — switch to OSINT mode + run passive recon on target',
     category: COMMAND_CATEGORIES.MODES,
     icon: '🌐',
     args: [{ name: 'target', required: false, description: 'Target to research' }]
@@ -52,8 +61,8 @@ export const COMMANDS = [
   {
     name: '/audit',
     aliases: [],
-    description: 'Switch to security code audit mode — read-only source analysis',
-    longDescription: 'Switch to audit mode. Analyze source code for security vulnerabilities: SQL injection, XSS, command injection, hardcoded secrets, insecure deserialization, authentication flaws.',
+    description: 'Switch to audit mode — or audit code: /audit <path>',
+    longDescription: 'Switch to security code audit mode (read-only source analysis). With a path, also audits the code immediately.\n\nUsage:\n  /audit            — switch to audit mode\n  /audit <path>     — switch to audit mode + audit code at path',
     category: COMMAND_CATEGORIES.MODES,
     icon: '👁️',
     args: [{ name: 'path', required: false, description: 'Path to audit' }]
@@ -61,8 +70,8 @@ export const COMMANDS = [
   {
     name: '/report',
     aliases: [],
-    description: 'Switch to report mode — generate pentest reports with evidence',
-    longDescription: 'Switch to report mode. Generate professional penetration test reports with: executive summary, methodology, findings with severity, proof of concept evidence, and remediation recommendations.',
+    description: 'Switch to report mode — or generate report now: /report [format]',
+    longDescription: 'Switch to report mode. Generates pentest reports with evidence. With a format, also generates the report immediately.\n\nUsage:\n  /report           — switch to report mode + generate report\n  /report md        — generate markdown report\n  /report json      — generate JSON report',
     category: COMMAND_CATEGORIES.MODES,
     icon: '📋',
     args: []
@@ -94,24 +103,6 @@ export const COMMANDS = [
     category: COMMAND_CATEGORIES.SECURITY,
     icon: '🔴',
     args: [{ name: 'target', required: true, description: 'Target URL or domain' }]
-  },
-  {
-    name: '/scan',
-    aliases: [],
-    description: 'Run vulnerability scanner — web, network, or code',
-    longDescription: 'Run vulnerability scanner on target. Supports web apps, network scans, and code analysis for common vulnerabilities.',
-    category: COMMAND_CATEGORIES.SECURITY,
-    icon: '🔍',
-    args: [{ name: 'target', required: true, description: 'Target to scan' }]
-  },
-  {
-    name: '/recon',
-    aliases: [],
-    description: 'Reconnaissance — passive and active information gathering on a target',
-    longDescription: 'Run reconnaissance on target. Passive recon gathers public info, active recon includes port scanning and directory enumeration.\n\n⚠️  Active recon requires authorization.',
-    category: COMMAND_CATEGORIES.SECURITY,
-    icon: '🕵️',
-    args: [{ name: 'target', required: true, description: 'Target domain or IP' }, { name: 'mode', required: false, description: 'passive or active' }]
   },
   {
     name: '/vpat',
@@ -150,15 +141,6 @@ export const COMMANDS = [
     args: [{ name: 'cve-id', required: false, description: 'CVE ID (e.g., CVE-2021-44228)' }]
   },
   {
-    name: '/report',
-    aliases: [],
-    description: 'Generate a professional security report from this session',
-    longDescription: 'Generate a professional security assessment report in Markdown or HTML format from findings collected during this session.',
-    category: COMMAND_CATEGORIES.SECURITY,
-    icon: '📊',
-    args: [{ name: 'format', required: false, description: 'md, json, or html' }]
-  },
-  {
     name: '/doctor',
     aliases: [],
     description: 'Check Red CLI setup, tool availability, and diagnose issues',
@@ -176,6 +158,33 @@ export const COMMANDS = [
     icon: '📦',
     args: []
   },
+  {
+    name: '/tool-status',
+    aliases: ['/tools'],
+    description: 'Show which security tools are installed and which are missing',
+    longDescription: 'Display installation status for all security tools. Shows which are installed, which are missing, and how to install them.',
+    category: COMMAND_CATEGORIES.SECURITY,
+    icon: '🔧',
+    args: []
+  },
+  {
+    name: '/collect-evidence',
+    aliases: ['/evidence'],
+    description: 'Generate a report from the current evidence session',
+    longDescription: 'Generate a markdown report and summary from all collected evidence in the current session. Saves to ~/.red/evidence/<session-id>/REPORT.md.',
+    category: COMMAND_CATEGORIES.SECURITY,
+    icon: '📋',
+    args: []
+  },
+  {
+    name: '/sessions',
+    aliases: [],
+    description: 'List all evidence collection sessions',
+    longDescription: 'Show all past evidence collection sessions with their status, target, and findings count.',
+    category: COMMAND_CATEGORIES.SECURITY,
+    icon: '📁',
+    args: []
+  },
 
   // 📋 Planning & Agents
   {
@@ -188,8 +197,8 @@ export const COMMANDS = [
     args: [{ name: 'task', required: true, description: 'Task to plan' }]
   },
   {
-    name: '/auto',
-    aliases: [],
+    name: '/autonomous',
+    aliases: ['/auto'],
     description: 'Run autonomously in a loop until the task is complete',
     longDescription: 'Run in autonomous mode. Agent will continuously work on the task, making decisions and executing tools until completion or max iterations.',
     category: COMMAND_CATEGORIES.PLANNING,
@@ -336,8 +345,8 @@ export const COMMANDS = [
     args: []
   },
   {
-    name: '/btw',
-    aliases: [],
+    name: '/aside',
+    aliases: ['/btw'],
     description: 'Ask a quick side question without interrupting the main conversation',
     longDescription: 'Ask a side question that doesn\'t affect the main task. Results are shown but main conversation continues.',
     category: COMMAND_CATEGORIES.CONVERSATION,
@@ -444,6 +453,33 @@ export const COMMANDS = [
     category: COMMAND_CATEGORIES.CONFIG,
     icon: '📝',
     args: []
+  },
+  {
+    name: '/multiline',
+    aliases: ['/ml'],
+    description: 'Toggle multi-line input mode — Enter adds newlines, Esc to submit',
+    longDescription: 'Toggle between single-line and multi-line input modes.\n\nIn multi-line mode:\n  Enter    — insert newline\n  Esc      — submit message\n  Ctrl+Enter — submit message\n\nIn single-line mode:\n  Enter    — submit message\n  Paste    — auto-detected and normalized',
+    category: COMMAND_CATEGORIES.CONFIG,
+    icon: '📝',
+    args: []
+  },
+  {
+    name: '/set',
+    aliases: [],
+    description: 'Toggle settings — autoFallback, stream, memory, etc.',
+    longDescription: 'Toggle or view settings.\n\nUsage:\n  /set                 — list all settings\n  /set autoFallback    — toggle auto-fallback on rate limit\n  /set stream          — toggle streaming output\n  /set memory          — toggle memory system',
+    category: COMMAND_CATEGORIES.CONFIG,
+    icon: '⚙️',
+    args: [{ name: 'setting', required: false, description: 'autoFallback, stream, memory' }]
+  },
+  {
+    name: '/agent',
+    aliases: [],
+    description: 'List available subagents or invoke one directly',
+    longDescription: 'Manage and invoke subagents.\n\nUsage:\n  /agent           — list all available agents\n  /agent recon     — invoke recon subagent with next message\n  /agent @recon <task> — direct invocation\n\nAvailable subagents:\n  @recon    — Reconnaissance and enumeration\n  @exploit  — Exploit development and testing\n  @audit    — Code and security audit\n  @report   — Finding correlation and report generation\n  @pentest  — Penetration testing execution',
+    category: COMMAND_CATEGORIES.CONFIG,
+    icon: '🤖',
+    args: [{ name: 'agent', required: false, description: 'agent name or @agent <task>' }]
   },
 
   // 🤖 Memory & Learning

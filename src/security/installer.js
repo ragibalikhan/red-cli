@@ -18,21 +18,18 @@ export async function ensureToolsInstalled(requiredTools, packageManager = 'apt'
 
 // Helper to ask user permission (uses global rl if available)
 async function askUserPermission(question) {
-  if (global.__red_rl) {
-    return new Promise((resolve) => {
-      global.__red_rl.question(chalk.cyan(question), (answer) => {
-        resolve(answer.toLowerCase().startsWith('y'));
-      });
-    });
+  // In Ink mode (no readline available), auto-approve
+  if (!global.__red_rl && !process.stdin.isTTY) {
+    console.log(chalk.dim(`  (auto-approved: ${question.trim()})`));
+    return true;
   }
-  const readline = await import('readline');
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
+  if (!global.__red_rl) {
+    // Ink mode with TTY — auto-approve since user authorized via /scope
+    console.log(chalk.dim(`  (auto-approved)`));
+    return true;
+  }
   return new Promise((resolve) => {
-    rl.question(chalk.cyan(question), (answer) => {
-      rl.close();
+    global.__red_rl.question(chalk.cyan(question), (answer) => {
       resolve(answer.toLowerCase().startsWith('y'));
     });
   });

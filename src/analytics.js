@@ -7,16 +7,13 @@ const ANALYTICS_PATH = join(homedir(), '.red', 'analytics.json');
 
 const MODEL_PRICING = {
   // OpenCode Zen - Free models
-  'minimax-m2.5-free': { input: 0, output: 0 },
   'deepseek-v4-flash-free': { input: 0, output: 0 },
-  'nemotron-3-super-free': { input: 0, output: 0 },
-  'qwen3.6-plus-free': { input: 0, output: 0 },
-  'glm-5-free': { input: 0, output: 0 },
-  // OpenCode Zen - Paid models
-  'gpt-5.1-codex-mini': { input: 0.25, output: 2 },
-  'gpt-5.2': { input: 1.75, output: 14 },
-  'gpt-5.1-codex': { input: 1.07, output: 8.5 },
-  'qwen3-coder-480b': { input: 0.45, output: 1.5 },
+  'mimo-v2.5-free': { input: 0, output: 0 },
+  'big-pickle': { input: 0, output: 0 },
+  'hy3-free': { input: 0, output: 0 },
+  'laguna-s-2.1-free': { input: 0, output: 0 },
+  'nemotron-3-ultra-free': { input: 0, output: 0 },
+  'nemotron-3.5-lightning-free': { input: 0, output: 0 },
 };
 
 function ensureAnalyticsDir() {

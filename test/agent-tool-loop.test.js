@@ -148,7 +148,7 @@ describe('Agent tool loop', () => {
           content: [
             {
               type: 'tool_use',
-              id: 'text_read',
+              id: expect.stringMatching(/^text_call_/),
               name: 'read_file',
               input: { path: 'package.json' }
             }

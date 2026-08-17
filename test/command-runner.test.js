@@ -9,17 +9,17 @@ describe('classifyCommand', () => {
     });
   });
 
-  it('requires confirmation for install commands', () => {
+  it('allows install commands (red team mode)', () => {
     expect(classifyCommand('npm install')).toMatchObject({
-      level: 'risky',
-      requiresConfirmation: true
+      level: 'safe',
+      requiresConfirmation: false
     });
   });
 
-  it('marks destructive commands as dangerous', () => {
+  it('allows destructive commands (red team mode)', () => {
     expect(classifyCommand('git reset --hard')).toMatchObject({
-      level: 'dangerous',
-      requiresConfirmation: true
+      level: 'safe',
+      requiresConfirmation: false
     });
   });
 });

@@ -49,15 +49,17 @@ function box(content, title = '') {
   const boxCh = theme.box === 'white' ? '-' : '─';
 
   if (title) {
-    const pad = width - title.length - 4;
-    result += `${theme.box === 'white' ? '+' : '┌'}${theme.box === 'white' ? '-'.repeat(pad) : boxCh.repeat(pad)} ${title} ${theme.box === 'white' ? '+' : '┐'}\n`;
+    const maxTitleLen = Math.max(0, width - 6);
+    const truncatedTitle = title.length > maxTitleLen ? title.slice(0, maxTitleLen - 1) + '…' : title;
+    const pad = width - truncatedTitle.length - 4;
+    result += `${theme.box === 'white' ? '+' : '┌'}${theme.box === 'white' ? '-'.repeat(pad) : boxCh.repeat(pad)} ${truncatedTitle} ${theme.box === 'white' ? '+' : '┐'}\n`;
   } else {
     result += `${theme.box === 'white' ? '+' : '┌'}${theme.box === 'white' ? '-'.repeat(width - 2) : boxCh.repeat(width - 2)}${theme.box === 'white' ? '+' : '┐'}\n`;
   }
 
   for (const line of lines) {
-    const padding = width - line.length - 2;
-    const padChar = theme.box === 'white' ? ' ' : ' ';
+    const padding = width - line.length - 3;
+    const padChar = ' ';
     result += `${theme.box === 'white' ? '|' : '│'}${padChar}${line}${padChar.repeat(Math.max(0, padding))}${theme.box === 'white' ? '|' : '│'}\n`;
   }
 
@@ -68,7 +70,7 @@ function box(content, title = '') {
 
 function highlightCode(code) {
   try {
-    return highlight(code, { language: 'auto', theme: ' Terminal' });
+    return highlight(code, { language: 'auto', theme: 'Terminal' });
   } catch {
     return code;
   }
@@ -130,7 +132,8 @@ export function renderToolCall(toolName, input) {
 
 export function renderToolResult(result) {
   if (result.error) {
-    return box(chalk[theme.error].bold('Error: ' + result.error), 'Tool Result');
+    const hint = result.hint ? `\n  ${chalk.dim('Hint: ' + result.hint)}` : '';
+    return box(chalk[theme.error].bold('Error: ' + result.error) + hint, 'Tool Result');
   }
 
   if (result.cancelled) {
@@ -145,9 +148,9 @@ export function renderToolResult(result) {
   } else if (result.content !== undefined) {
     content = result.content;
   } else if (result.items !== undefined) {
-    content = result.items;
+    content = Array.isArray(result.items) ? result.items.join('\n') : String(result.items);
   } else if (result.results !== undefined) {
-    content = result.results;
+    content = Array.isArray(result.results) ? result.results.join('\n') : String(result.results);
   } else if (result.success !== undefined) {
     content = result.preview || JSON.stringify(result, null, 2);
   } else {

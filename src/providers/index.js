@@ -55,15 +55,13 @@ export const PROVIDER_MODELS = {
     'gemini-1.5-flash'
   ],
   opencode: [
-    'minimax-m2.5-free',
     'deepseek-v4-flash-free',
-    'nemotron-3-super-free',
-    'qwen3.6-plus-free',
-    'glm-5-free',
-    'qwen3-coder-480b',
-    'gpt-5.1-codex-mini',
-    'gpt-5.2',
-    'gpt-5.1-codex'
+    'mimo-v2.5-free',
+    'big-pickle',
+    'hy3-free',
+    'laguna-s-2.1-free',
+    'nemotron-3-ultra-free',
+    'nemotron-3.5-lightning-free',
   ],
   ollama: [
     'llama3',
@@ -85,7 +83,7 @@ export function getModelsForProvider(provider) {
 }
 
 export function providerSupportsNativeTools(provider, model = '') {
-  if (provider === 'nvidia') return false;
+  if (provider === 'nvidia') return true;
   if (provider === 'ollama') {
     const modelName = model.toLowerCase();
     if (modelName.includes('llama3') || modelName.includes('qwen') || modelName.includes('mistral')) {

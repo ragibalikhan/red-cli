@@ -26,31 +26,41 @@ const MODEL_LIMITS = {
   'gemini-1.5-pro': { context: 200000, maxOutput: 8192 },
   'gemini-1.5-flash': { context: 1000000, maxOutput: 8192 },
 
-  // OpenCode Zen models
-  'minimax-m2.5-free': { context: 200000, maxOutput: 8192 },
+  // OpenCode Zen models (free)
   'deepseek-v4-flash-free': { context: 200000, maxOutput: 8192 },
-  'nemotron-3-super-free': { context: 200000, maxOutput: 8192 },
-  'qwen3.6-plus-free': { context: 262000, maxOutput: 8192 },
-  'glm-5-free': { context: 1000000, maxOutput: 16384 },
-  'gpt-5.1-codex-mini': { context: 200000, maxOutput: 8192 },
-  'gpt-5.2': { context: 200000, maxOutput: 8192 },
-  'gpt-5.1-codex': { context: 200000, maxOutput: 8192 },
-  'qwen3-coder-480b': { context: 262000, maxOutput: 8192 },
+  'mimo-v2.5-free': { context: 200000, maxOutput: 8192 },
+  'big-pickle': { context: 200000, maxOutput: 8192 },
+  'hy3-free': { context: 200000, maxOutput: 8192 },
+  'laguna-s-2.1-free': { context: 200000, maxOutput: 8192 },
+  'nemotron-3-ultra-free': { context: 200000, maxOutput: 8192 },
+  'nemotron-3.5-lightning-free': { context: 200000, maxOutput: 8192 },
 
   // NVIDIA
+  'z-ai/glm-5.2': { context: 1000000, maxOutput: 8192 },
   'z-ai/glm-5.1': { context: 1000000, maxOutput: 8192 },
   'deepseek-ai/deepseek-v4-pro': { context: 64000, maxOutput: 8192 },
   'deepseek-ai/deepseek-v4-flash': { context: 64000, maxOutput: 8192 },
+  'deepseek-ai/deepseek-v3.2-exp': { context: 128000, maxOutput: 8192 },
   'moonshotai/kimi-k2.6': { context: 256000, maxOutput: 8192 },
   'qwen/qwen3-coder-480b-a35b-instruct': { context: 256000, maxOutput: 8192 },
   'qwen/qwen3-next-80b-a3b-instruct': { context: 256000, maxOutput: 8192 },
+  'qwen/qwen3-coder-next': { context: 256000, maxOutput: 8192 },
+  'qwen/qwen3-32b': { context: 256000, maxOutput: 8192 },
+  'google/gemma-4-31b-it': { context: 128000, maxOutput: 8192 },
+  'openai/gpt-oss-20b': { context: 128000, maxOutput: 8192 },
+  'openai/gpt-oss-120b': { context: 128000, maxOutput: 8192 },
   'minimaxai/minimax-m2.7': { context: 200000, maxOutput: 8192 },
-  'minimaxai/minimax-m2.5': { context: 200000, maxOutput: 8192 },
+  'minimaxai/minimax-m3': { context: 1000000, maxOutput: 8192 },
   'meta/llama-3.3-70b-instruct': { context: 128000, maxOutput: 8192 },
   'mistralai/mixtral-8x7b-instruct': { context: 32000, maxOutput: 4096 },
+  'poolside/laguna-xs-2.1': { context: 256000, maxOutput: 8192 },
   'nvidia/llama-3.1-nemotron-ultra-253b-v1': { context: 128000, maxOutput: 8192 },
   'nvidia/llama-3.3-nemotron-super-49b-v1.5': { context: 128000, maxOutput: 8192 },
   'nvidia/nvidia-nemotron-nano-9b-v2': { context: 128000, maxOutput: 8192 },
+  'nvidia/nemotron-3-nano-30b-a3b': { context: 1000000, maxOutput: 8192 },
+  'nvidia/nemotron-3-super-120b-a12b': { context: 1000000, maxOutput: 8192 },
+  'nvidia/nemotron-3.5-lightning-30b-a3b': { context: 128000, maxOutput: 8192 },
+  'nvidia/nemotron-3-ultra-550b-a55b': { context: 128000, maxOutput: 8192 },
 
   // Ollama (typically small)
   'llama3': { context: 8192, maxOutput: 4096 },
@@ -280,7 +290,7 @@ export class TokenManager {
 
   // Trim messages to fit within context limit
   // Strategy: Keep system, tools, and most recent messages
-  async trimMessages(messages, systemPrompt = '') {
+  async trimMessages(messages, systemPrompt = '', { silent = false } = {}) {
     const contextLimit = this.limits.context;
     const reservedTokens = this.systemPromptTokens + this.toolsTokens + 1000; // buffer
     const availableForMessages = contextLimit - reservedTokens;
@@ -297,7 +307,7 @@ export class TokenManager {
       return messages; // Fits, no trimming needed
     }
 
-    console.log(chalk.dim(`  📊 Context: ${currentTokens} tokens, trimming to ${availableForMessages}...`));
+    if (!silent) console.log(chalk.dim(`  📊 Context: ${currentTokens} tokens, trimming to ${availableForMessages}...`));
 
     // Strategy: Keep recent messages, drop old ones
     // Keep at least: last user message + last assistant message

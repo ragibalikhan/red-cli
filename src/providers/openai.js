@@ -174,9 +174,11 @@ export class OpenAIProvider extends BaseProvider {
     let accumulatedContent = '';
     const toolCallsByIndex = [];
     let accumulatedReasoning = '';
+    let streamUsage = null;
 
     for await (const chunk of response) {
-      const delta = chunk.choices[0]?.delta;
+      if (chunk.usage) streamUsage = chunk.usage;
+      const delta = chunk.choices?.[0]?.delta;
       if (!delta) continue;
 
       if (delta.reasoning_content) {
@@ -200,20 +202,9 @@ export class OpenAIProvider extends BaseProvider {
        .map(tc => this.parseToolCall(tc));
 
      yield { type: 'done', text: accumulatedContent, reasoningContent: accumulatedReasoning || undefined, toolUses: this.extractToolCalls(parsedToolCalls, accumulatedContent) };
-
-     // Get final usage from OpenAI
-     const finalResponse = await response;
-     const usage = finalResponse.usage;
-     
-     yield { 
-       type: 'usage', 
-       usage: {
-         inputTokens: usage.prompt_tokens,
-         outputTokens: usage.completion_tokens,
-         cacheCreationInputTokens: usage.prompt_tokens_details?.cached_tokens || 0,
-         cacheReadInputTokens: 0 // OpenAI doesn't separate cache read/write in the same way
-       }
-     };
+     if (streamUsage) {
+       yield { type: 'usage', usage: { inputTokens: streamUsage.prompt_tokens, outputTokens: streamUsage.completion_tokens } };
+     }
   }
 
   async sendMessage(messages, tools = [], options = {}) {

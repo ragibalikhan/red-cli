@@ -250,6 +250,17 @@ IMPORTANT: When the task is complete, include this XML tag in your response:
 
         console.log(renderToolCall(toolUse.name, toolUse.input));
 
+        // Scope check: warn before executing network-facing tools on non-local targets
+        const NETWORK_TOOLS = ['port_scan', 'dns_lookup', 'fingerprint', 'subdomain_enum', 'active_scan', 'http_request', 'web_fetch', 'web_search'];
+        if (NETWORK_TOOLS.includes(toolUse.name)) {
+          const target = toolUse.input?.target || toolUse.input?.url || toolUse.input?.domain || '';
+          const isLocal = /localhost|127\.0\.0\.1|::1|0\.0\.0\.0/i.test(target) || !target.includes('.');
+          if (!isLocal && target) {
+            console.log(chalk.yellow(`\n  ⚠️  Network tool targeting external host: ${target}`));
+            console.log(chalk.dim('  Ensure this target is in your authorized scope (/scope add).\n'));
+          }
+        }
+
         callBlocks.push({
           type: 'tool_use',
           id: toolUse.id,
@@ -351,6 +362,16 @@ IMPORTANT: When the task is complete, include this XML tag in your response:
           }
 
           console.log(renderToolCall(toolUse.name, toolUse.input));
+
+          // Scope check for follow-up network tools
+          const NETWORK_TOOLS = ['port_scan', 'dns_lookup', 'fingerprint', 'subdomain_enum', 'active_scan', 'http_request', 'web_fetch', 'web_search'];
+          if (NETWORK_TOOLS.includes(toolUse.name)) {
+            const target = toolUse.input?.target || toolUse.input?.url || toolUse.input?.domain || '';
+            const isLocal = /localhost|127\.0\.0\.1|::1|0\.0\.0\.0/i.test(target) || !target.includes('.');
+            if (!isLocal && target) {
+              console.log(chalk.yellow(`\n  ⚠️  Network tool targeting external host: ${target}`));
+            }
+          }
 
           try {
             const result = await executeTool(toolUse.name, toolUse.input, {

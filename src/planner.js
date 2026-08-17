@@ -101,7 +101,7 @@ User request: ${userMessage}`;
     output += `${chalk.cyan('│')}\n`;
     output += `${chalk.cyan('│')}  ${chalk.dim('Estimated:')} ${plan.steps.length} steps • ~${plan.estimatedCalls || 5} tool calls\n`;
     output += `${chalk.cyan('│')}\n`;
-    output += `${chalk.cyan('│')}  ${chalk.cyan('[y]')} Execute  ${chalk.cyan('[n]')} Cancel  ${chalk.cyan('[e]')} Edit  ${chalk.cyan('[s]')} Step-by-step\n`;
+    output += `${chalk.cyan('│')}  ${chalk.cyan('[y]')} Execute  ${chalk.cyan('[n]')} Cancel\n`;
     output += `${chalk.cyan('╰')}${'─'.repeat(width - 1)}\n`;
 
     return output;

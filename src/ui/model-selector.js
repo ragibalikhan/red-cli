@@ -149,16 +149,6 @@ const SELECTABLE_MODELS = [
   },
   {
     number: 14,
-    label: "MiniMax M2.5 Free",
-    model: "minimax-m2.5-free",
-    provider: "opencode",
-    description: "OpenCode Zen · Free",
-    pricing: "Free",
-    contextWindow: "200K",
-    badge: "zen"
-  },
-  {
-    number: 15,
     label: "DeepSeek V4 Flash Free",
     model: "deepseek-v4-flash-free",
     provider: "opencode",
@@ -168,9 +158,9 @@ const SELECTABLE_MODELS = [
     badge: "zen"
   },
   {
-    number: 16,
-    label: "Nemotron 3 Super Free",
-    model: "nemotron-3-super-free",
+    number: 15,
+    label: "MiMo V2.5 Free",
+    model: "mimo-v2.5-free",
     provider: "opencode",
     description: "OpenCode Zen · Free",
     pricing: "Free",
@@ -178,67 +168,57 @@ const SELECTABLE_MODELS = [
     badge: "zen"
   },
   {
-    number: 17,
-    label: "Qwen3.6 Plus Free",
-    model: "qwen3.6-plus-free",
+    number: 16,
+    label: "Big Pickle Free",
+    model: "big-pickle",
     provider: "opencode",
-    description: "OpenCode Zen · Free limited time",
+    description: "OpenCode Zen · Free stealth model",
     pricing: "Free",
-    contextWindow: "262K",
+    contextWindow: "200K",
+    badge: "zen"
+  },
+  {
+    number: 17,
+    label: "Hy3 Free",
+    model: "hy3-free",
+    provider: "opencode",
+    description: "OpenCode Zen · Free",
+    pricing: "Free",
+    contextWindow: "200K",
     badge: "zen"
   },
   {
     number: 18,
-    label: "GLM-5 Free",
-    model: "glm-5-free",
+    label: "Laguna S 2.1 Free",
+    model: "laguna-s-2.1-free",
     provider: "opencode",
-    description: "OpenCode Zen · 1M context, free limited",
+    description: "OpenCode Zen · Free",
     pricing: "Free",
-    contextWindow: "1M",
+    contextWindow: "200K",
     badge: "zen"
   },
   {
     number: 19,
-    label: "Qwen3 Coder 480B",
-    model: "qwen3-coder-480b",
+    label: "Nemotron 3 Ultra Free",
+    model: "nemotron-3-ultra-free",
     provider: "opencode",
-    description: "OpenCode Zen · Powerful coding model",
-    pricing: "$0.45/$1.50 per Mtok",
-    contextWindow: "262K",
+    description: "OpenCode Zen · Free",
+    pricing: "Free",
+    contextWindow: "200K",
     badge: "zen"
   },
   {
     number: 20,
-    label: "GPT-5.1 Codex Mini",
-    model: "gpt-5.1-codex-mini",
+    label: "Nemotron 3.5 Lightning Free",
+    model: "nemotron-3.5-lightning-free",
     provider: "opencode",
-    description: "OpenCode Zen · Efficient code model",
-    pricing: "$0.25/$2 per Mtok",
+    description: "OpenCode Zen · Free",
+    pricing: "Free",
     contextWindow: "200K",
     badge: "zen"
   },
   {
     number: 21,
-    label: "GPT-5.1 Codex",
-    model: "gpt-5.1-codex",
-    provider: "opencode",
-    description: "OpenCode Zen · Full code capabilities",
-    pricing: "$1.07/$8.50 per Mtok",
-    contextWindow: "200K",
-    badge: "zen"
-  },
-  {
-    number: 22,
-    label: "GPT-5.2",
-    model: "gpt-5.2",
-    provider: "opencode",
-    description: "OpenCode Zen · Latest GPT model",
-    pricing: "$1.75/$14 per Mtok",
-    contextWindow: "200K",
-    badge: "zen"
-  },
-  {
-    number: 23,
     label: "ollama/llama3",
     model: "llama3",
     provider: "ollama",
@@ -358,10 +338,13 @@ export class ModelSelector {
             this.cleanup(handleKey);
             resolve(null);
             return;
-          case 'ctrl-c':
-            this.cleanup(handleKey);
-            resolve(null);
-            return;
+          case 'c':
+            if (key.ctrl) {
+              this.cleanup(handleKey);
+              resolve(null);
+              return;
+            }
+            break;
         }
       };
 

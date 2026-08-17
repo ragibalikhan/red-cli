@@ -54,3 +54,7 @@ analytics.json
 
 # Package lock (optional - use pnpm-lock or yarn.lock)
 # package-lock.json
+
+# Use npm only (package-lock.json)
+yarn.lock
+pnpm-lock.yaml

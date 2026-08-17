@@ -7,9 +7,17 @@ import { installTool } from './security/installer.js';
 import { runCommand, classifyCommand } from './command-runner.js';
 import chalk from 'chalk';
 import { CVELookup } from './security/cve-lookup.js';
+import { SECURITY_TOOL_DEFINITIONS, executeSecurityTool } from './security/security-tools.js';
 
 const TIMEOUT_MS = 30000;
 const MAX_OUTPUT_LENGTH = 10000;
+
+// Sanitize a string for safe interpolation into shell commands.
+// Wraps in single quotes and escapes embedded single quotes to prevent injection.
+function sanitizeShellArg(arg) {
+  if (typeof arg !== 'string') return String(arg);
+  return "'" + arg.replace(/'/g, "'\\''") + "'";
+}
 
 const MEMORY_PATH = join(homedir(), '.red', 'memory.json');
 
@@ -297,13 +305,14 @@ export function getToolDefinitions() {
     },
     {
       name: 'payload_gen',
-      description: 'Generate attack payloads for a given vulnerability type. Returns ready-to-use payload strings.',
+      description: 'Generate attack payloads for a given vulnerability type. Returns ready-to-use payload strings. Set waf_evasion=true for 30+ WAF bypass encoding variants.',
       input_schema: {
         type: 'object',
         properties: {
           vuln_type: { type: 'string', description: 'Vulnerability type: xss, sqli, lfi, ssrf, cmdi, ssti' },
           context: { type: 'string', description: 'Context for the payload (e.g., parameter name, HTML context). Optional.' },
-          count: { type: 'number', description: 'Number of payloads to generate. Default: 5.' }
+          count: { type: 'number', description: 'Number of payloads to generate. Default: 5.' },
+          waf_evasion: { type: 'boolean', description: 'Generate WAF bypass variants (30+ encodings). Default: false.' }
         },
         required: ['vuln_type']
       }
@@ -355,54 +364,188 @@ export function getToolDefinitions() {
         },
         required: ['url']
       }
-    }
+    },
+    {
+      name: 'passive_analyze',
+      description: 'Run passive security analysis on an HTTP response. Checks headers, cookies, secrets, PII, CORS, and caching issues. Use after web_fetch to find misconfigurations.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'The URL that was fetched' },
+          headers: { type: 'object', description: 'Response headers as key-value pairs' },
+          body: { type: 'string', description: 'Response body text' },
+          statusCode: { type: 'number', description: 'HTTP status code' }
+        },
+        required: ['url']
+      }
+    },
+    {
+      name: 'cvss_score',
+      description: 'Calculate CVSS 4.0 score for a security finding. Auto-detects vulnerability type from the description.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Finding title (e.g. "SQL Injection in login form")' },
+          detail: { type: 'string', description: 'Finding description/details' },
+          vulnType: { type: 'string', description: 'Optional explicit type: sqli, xss, cmdi, ssrf, lfi, xxe, ssti, idor, csrf, jwt_none, jwt_weak_secret, log4shell, nosqli, etc.' }
+        },
+        required: ['title']
+      }
+    },
+    {
+      name: 'jwt_attack',
+      description: 'Test a JWT token for vulnerabilities: alg:none bypass, RS256→HS256 algorithm confusion, and weak HMAC secret brute-force. Returns forged tokens if vulnerable.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          token: { type: 'string', description: 'The JWT token to attack (eyJ...)' },
+          publicKey: { type: 'string', description: 'Optional: RSA public key for algorithm confusion attack' }
+        },
+        required: ['token']
+      }
+    },
+    {
+      name: 'interactsh_listen',
+      description: 'Start an OOB (Out-of-Band) listener for blind vulnerability detection. Returns unique callback URLs/payloads for Log4Shell, blind SQLi, blind CMDi, XXE, SSRF. Inject the payloads, then poll for callbacks.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          server: { type: 'string', description: 'Interactsh server. Default: oast.pro' },
+          poll: { type: 'boolean', description: 'If true, immediately poll for 30s after creating session' }
+        }
+      }
+    },
+    {
+      name: 'waf_encode',
+      description: 'Generate 30+ WAF bypass encoding variants for a payload. Context-aware: xss, sqli, path, cmdi, or all.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          payload: { type: 'string', description: 'The payload to encode' },
+          context: { type: 'string', description: 'Encoding context: xss, sqli, path, cmdi, or all. Default: all.' }
+        },
+        required: ['payload']
+      }
+    },
+    {
+      name: 'active_scan',
+      description: 'Run 10 active vulnerability probes against a URL+parameter. Tests for SQLi, XSS, SSTI, SSRF, LFI, CMDi, open redirect, CORS, host header injection, CSRF. Sends real requests — requires scope authorization.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'Target URL to probe' },
+          param: { type: 'string', description: 'Parameter name to inject into' },
+          method: { type: 'string', description: 'HTTP method: GET or POST. Default: GET.' },
+          probe: { type: 'string', description: 'Optional: run only a specific probe (sqli, xss, ssti, ssrf, lfi, cmdi, open_redirect, cors, host_header, csrf)' }
+        },
+        required: ['url']
+      }
+    },
+    {
+      name: 'attack_surface',
+      description: 'Map the attack surface of a target. Crawls pages, extracts endpoints/params/forms, detects auth mechanisms and technologies. Returns entry points for testing.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'Target URL to map' },
+          depth: { type: 'number', description: 'Crawl depth. Default: 1.' }
+        },
+        required: ['url']
+      }
+    },
+    {
+      name: 'correlate_findings',
+      description: 'Analyze a set of findings to identify attack chains and risk escalations. Chains findings together (e.g., SSRF+metadata=key theft, XSS+no CSRF=account takeover).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          findings: { type: 'array', description: 'Array of finding objects with title, detail, severity fields' }
+        },
+        required: ['findings']
+      }
+    },
+    ...SECURITY_TOOL_DEFINITIONS
   ];
 }
 
 export async function executeTool(toolName, toolInput, options = {}) {
   const { onConfirm, mcpManager } = options;
+  const startTime = Date.now();
 
+  // Permission check
+  try {
+    const { evaluatePermission } = await import('./security/permissions.js');
+    const permission = evaluatePermission(toolName, toolInput);
+
+    if (permission === 'deny') {
+      return { error: `Permission denied: ${toolName} is blocked by your permission rules. Use /permissions to manage.` };
+    }
+
+    if (permission === 'ask' && onConfirm && typeof onConfirm === 'function') {
+      const desc = toolName === 'bash' ? toolInput?.command : `${toolName}(${JSON.stringify(toolInput).slice(0, 80)})`;
+      const approved = await onConfirm(`  ⚠️  ${toolName}: ${desc}\n  Allow? [y/n]: `);
+      if (!approved) {
+        return { error: `Cancelled: ${toolName} was not approved.` };
+      }
+    }
+  } catch (permErr) {
+    console.error(`Permission check error: ${permErr.message}`);
+  }
+
+  let result;
   try {
     if (toolName.startsWith('mcp__')) {
-      if (!mcpManager) return { error: 'MCP manager not available' };
-      const actualName = toolName.slice(5);
-      const result = await mcpManager.callTool(actualName, toolInput);
-      return result.isError ? { error: result.output } : { output: result.output };
-    }
-
-    switch (toolName) {
-      case 'bash': return await executeBash(toolInput, options);
-      case 'read_file': return executeReadFile(toolInput);
-      case 'write_file': return executeWriteFile(toolInput);
-      case 'list_directory': return executeListDirectory(toolInput);
-      case 'search_files': return executeSearchFiles(toolInput);
-      case 'edit_file': return executeEditFile(toolInput);
-      case 'code_analysis': return executeCodeAnalysis(toolInput);
-      case 'run_tests': return await executeRunTests(toolInput);
-      case 'explain_error': return executeExplainError(toolInput);
-      case 'find_and_replace_all': return executeFindAndReplaceAll(toolInput);
-      case 'create_file_tree': return executeCreateFileTree(toolInput);
-      case 'git': return executeGit(toolInput);
-      case 'http_request': return executeHttpRequest(toolInput);
-      case 'clipboard': return executeClipboard(toolInput);
-      case 'remember': return executeRemember(toolInput);
-      case 'recall': return executeRecall(toolInput);
-      case 'install_tool': return await executeInstallTool(toolInput, options);
-      case 'port_scan': return await executePortScan(toolInput);
-      case 'dns_lookup': return await executeDnsLookup(toolInput);
-      case 'cve_search': return await executeCveSearch(toolInput);
-      case 'payload_gen': return executePayloadGen(toolInput);
-      case 'fingerprint': return await executeFingerprint(toolInput);
-      case 'subdomain_enum': return await executeSubdomainEnum(toolInput);
-      case 'web_search': return await executeWebSearch(toolInput);
-      case 'web_fetch': return await executeWebFetch(toolInput);
-      default: return { error: `Unknown tool: ${toolName}` };
+      if (!mcpManager) result = { error: 'MCP manager not available' };
+      else {
+        const actualName = toolName.slice(5);
+        const mcpResult = await mcpManager.callTool(actualName, toolInput);
+        result = mcpResult.isError ? { error: mcpResult.output } : { output: mcpResult.output };
+      }
+    } else {
+      switch (toolName) {
+        case 'bash': result = await executeBash(toolInput, options); break;
+        case 'read_file': result = executeReadFile(toolInput); break;
+        case 'write_file': result = executeWriteFile(toolInput); break;
+        case 'list_directory': result = executeListDirectory(toolInput); break;
+        case 'search_files': result = executeSearchFiles(toolInput); break;
+        case 'edit_file': result = executeEditFile(toolInput); break;
+        case 'code_analysis': result = executeCodeAnalysis(toolInput); break;
+        case 'run_tests': result = await executeRunTests(toolInput); break;
+        case 'explain_error': result = executeExplainError(toolInput); break;
+        case 'find_and_replace_all': result = executeFindAndReplaceAll(toolInput); break;
+        case 'create_file_tree': result = executeCreateFileTree(toolInput); break;
+        case 'git': result = executeGit(toolInput); break;
+        case 'http_request': result = executeHttpRequest(toolInput); break;
+        case 'clipboard': result = executeClipboard(toolInput); break;
+        case 'remember': result = executeRemember(toolInput); break;
+        case 'recall': result = executeRecall(toolInput); break;
+        case 'install_tool': result = await executeInstallTool(toolInput, options); break;
+        case 'port_scan': result = await executePortScan(toolInput); break;
+        case 'dns_lookup': result = await executeDnsLookup(toolInput); break;
+        case 'cve_search': result = await executeCveSearch(toolInput); break;
+        case 'payload_gen': result = await executePayloadGen(toolInput); break;
+        case 'fingerprint': result = await executeFingerprint(toolInput); break;
+        case 'subdomain_enum': result = await executeSubdomainEnum(toolInput); break;
+        case 'web_search': result = await executeWebSearch(toolInput); break;
+        case 'web_fetch': result = await executeWebFetch(toolInput); break;
+        case 'passive_analyze': result = executePassiveAnalyze(toolInput); break;
+        case 'cvss_score': result = executeCvssScore(toolInput); break;
+        case 'jwt_attack': result = executeJwtAttack(toolInput); break;
+        case 'interactsh_listen': result = executeInteractshListen(toolInput); break;
+        case 'waf_encode': result = executeWafEncode(toolInput); break;
+        case 'active_scan': result = executeActiveScan(toolInput); break;
+        case 'attack_surface': result = executeAttackSurface(toolInput); break;
+        case 'correlate_findings': result = executeCorrelateFindings(toolInput); break;
+        default: {
+          const securityResult = await executeSecurityTool(toolName, toolInput);
+          if (securityResult && !securityResult.error?.startsWith('Unknown security tool')) result = securityResult;
+          else result = { error: `Unknown tool: ${toolName}` };
+        }
+      }
     }
   } catch (err) {
-    // Add recovery hints to help AI fix issues
     const error = err.message || String(err);
     let hint = '';
-
     if (error.includes('SyntaxError') || error.includes('unterminated')) {
       hint = '\n\n[HINT] This is a syntax error. Try: 1) Read the file with read_file to see exact content 2) Use write_file to rewrite the entire file with correct syntax';
     } else if (error.includes('ENOENT') || error.includes('No such file')) {
@@ -412,15 +555,32 @@ export async function executeTool(toolName, toolInput, options = {}) {
     } else if (error.includes('permission') || error.includes('denied')) {
       hint = '\n\n[HINT] Permission denied. Try running with appropriate permissions or check file ownership.';
     }
-
-    return { error: error + hint };
+    result = { error: error + hint };
   }
+
+  // Record evidence for security tools
+  try {
+    const SECURITY_TOOLS = ['nmap_scan', 'masscan_scan', 'whois_lookup', 'traceroute', 'httpx_probe', 'whatweb_scan', 'subfinder_enum', 'amass_enum', 'ffuf_fuzz', 'gobuster_scan', 'nuclei_scan', 'nikto_scan', 'sqlmap_test', 'hydra_brute', 'wpscan_check', 'port_scan', 'dns_lookup', 'fingerprint', 'subdomain_enum', 'active_scan', 'attack_surface', 'jwt_attack', 'interactsh_listen'];
+    if (SECURITY_TOOLS.includes(toolName)) {
+      const { recordToolCall, getActiveSessionId, startSession } = await import('./security/evidence-collector.js');
+      let sessionId = getActiveSessionId();
+      if (!sessionId) {
+        // Auto-start session for first security tool call
+        const session = startSession(toolInput?.target || '');
+        sessionId = session.id;
+      }
+      recordToolCall(toolName, toolInput, result, Date.now() - startTime);
+    }
+  } catch {}
+
+  return result;
 }
 
 async function executeBash(input, onConfirm) {
   const runnerOptions = onConfirm && typeof onConfirm === 'object' ? onConfirm : { onConfirm };
   const result = await runCommand(input, {
     onConfirm: runnerOptions.onConfirm,
+    skipConfirmation: true, // permissions.js already prompted — don't double-prompt
     workspaceRoot: runnerOptions.workspaceRoot || process.cwd(),
     cwd: runnerOptions.workingDirectory || process.cwd(),
     timeoutMs: input.timeout_ms || input.timeoutMs || TIMEOUT_MS
@@ -629,7 +789,7 @@ function executeListDirectory(input) {
     const items = readdirSync(normalizedPath);
     let gitignorePatterns = [];
     try {
-      const gitignore = readFileSync(join(path, '.gitignore'), 'utf-8');
+      const gitignore = readFileSync(join(normalizedPath, '.gitignore'), 'utf-8');
       gitignorePatterns = gitignore.split('\n').filter(line => line.trim() && !line.startsWith('#'));
     } catch {}
 
@@ -637,7 +797,7 @@ function executeListDirectory(input) {
       .filter(item => !gitignorePatterns.some(pattern => matchGitignore(item, pattern)))
       .map(item => {
         try {
-          const stats = statSync(join(path, item));
+          const stats = statSync(join(normalizedPath, item));
           const type = stats.isDirectory() ? '📁' : '📄';
           return `${type} ${item}`;
         } catch {
@@ -653,16 +813,26 @@ function executeListDirectory(input) {
 }
 
 function matchGitignore(item, pattern) {
-  if (pattern.startsWith('*')) return item.endsWith(pattern.slice(1));
-  if (pattern.endsWith('*')) return item.startsWith(pattern.slice(0, -1));
-  return item === pattern;
+  let p = pattern.trim();
+  // Handle directory-only patterns (trailing /)
+  const isDirPattern = p.endsWith('/');
+  if (isDirPattern) p = p.slice(0, -1);
+  // Handle ** recursive patterns
+  if (p.startsWith('**/')) p = p.slice(3);
+  // Handle negation (we don't support it, just skip)
+  if (p.startsWith('!')) return false;
+  if (p.startsWith('*')) return item.endsWith(p.slice(1));
+  if (p.endsWith('*')) return item.startsWith(p.slice(0, -1));
+  // Exact match or directory match
+  return item === p || (isDirPattern && item === p);
 }
 
 function executeSearchFiles(input) {
   const { pattern, path, file_glob = '*' } = input;
+  const normalizedPath = normalizePath(path);
   try {
     let files = [];
-    collectFiles(path, file_glob, files);
+    collectFiles(normalizedPath, file_glob, files);
 
     const results = [];
     const regex = new RegExp(pattern, 'gi');
@@ -759,7 +929,7 @@ function executeEditFile(input) {
     }
 
     const newContent = content.replace(old_str, new_str);
-    writeFileSync(path, newContent, 'utf-8');
+    writeFileSync(normalizedPath, newContent, 'utf-8');
     return { success: true, path, replaced: old_str.slice(0, 50) + (old_str.length > 50 ? '...' : ''), with: new_str.slice(0, 50) + (new_str.length > 50 ? '...' : '') };
   } catch (err) {
     return { error: `Failed to edit file: ${err.message}` };
@@ -951,21 +1121,8 @@ function executeCreateFileTree(input) {
 function executeGit(input) {
   const { command, args = '' } = input;
 
-  const safeCommands = ['status', 'log', 'diff', 'add', 'commit', 'branch', 'checkout', 'stash', 'fetch', 'pull'];
-  const blockedCommands = ['push', 'push --force', 'push -f', 'rebase -i', 'reset --hard', 'clean -fd'];
-
-  if (!safeCommands.includes(command)) {
-    return { error: `Git command "${command}" is not allowed. Allowed: ${safeCommands.join(', ')}` };
-  }
-
-  for (const blocked of blockedCommands) {
-    if ((command + ' ' + args).includes(blocked)) {
-      return { error: `Git command "${command} ${args}" requires explicit user confirmation` };
-    }
-  }
-
   try {
-    const fullCmd = `git ${command} ${args}`;
+    const fullCmd = `git ${command} ${args ? sanitizeShellArg(args) : ''}`;
     const output = execSync(fullCmd, { encoding: 'utf-8', timeout: 30000 });
     return { output: output || `(git ${command} completed)` };
   } catch (err) {
@@ -976,15 +1133,11 @@ function executeGit(input) {
 async function executeHttpRequest(input) {
   const { method, url, headers = {}, body } = input;
 
-  if (url.includes('localhost') || url.includes('127.0.0.1')) {
-    return { error: 'Requests to localhost are blocked by default' };
-  }
-
   try {
     const response = await fetch(url, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined
+      body: body || undefined
     });
 
     const responseBody = await response.text();
@@ -1016,9 +1169,10 @@ function executeClipboard(input) {
       return { content: output.trim() };
     } else if (action === 'write') {
       if (!content) return { error: 'No content provided to write to clipboard' };
-      const cmd = isMac ? `echo "${content}" | pbcopy`
-        : isWindows ? `powershell -Command "Set-Clipboard -Value '${content}'"`
-        : `echo "${content}" | xclip -selection clipboard`;
+      const safeContent = content.replace(/'/g, "''");
+      const cmd = isMac ? `printf '%s' '${safeContent}' | pbcopy`
+        : isWindows ? `powershell -Command "Set-Clipboard -Value '${safeContent}'"`
+        : `printf '%s' '${safeContent}' | xclip -selection clipboard`;
       execSync(cmd, { encoding: 'utf-8' });
       return { success: true };
     }
@@ -1091,18 +1245,20 @@ async function executePortScan(input) {
 
   try {
     let cmd;
+    const safeTarget = sanitizeShellArg(target);
+    const safePorts = sanitizeShellArg(ports || '1-1000');
     if (scan_type === 'full') {
-      cmd = `nmap -sV -sC -p- -T4 ${target} 2>&1`;
+      cmd = `nmap -sV -sC -p- -T4 ${safeTarget} 2>&1`;
     } else if (scan_type === 'service') {
-      cmd = `nmap -sV -sC -p ${ports || '1-1000'} -T4 ${target} 2>&1`;
+      cmd = `nmap -sV -sC -p ${safePorts} -T4 ${safeTarget} 2>&1`;
     } else {
-      cmd = `nmap -F -T4 ${target} 2>&1`;
+      cmd = `nmap -F -T4 ${safeTarget} 2>&1`;
     }
 
     const output = execSync(cmd, { encoding: 'utf-8', timeout: 120000 });
     const lines = output.split('\n').filter(l => l.trim());
     const summary = lines.filter(l =>
-      /open|PORT|Nmap|OS|Service|PORT|STATE/i.test(l)
+      /open|PORT|Nmap|OS|Service|STATE/i.test(l)
     ).join('\n');
 
     return {
@@ -1126,13 +1282,14 @@ async function executeDnsLookup(input) {
   try {
     const recordTypes = record_type === 'ANY' ? ['A', 'AAAA', 'MX', 'NS', 'TXT', 'CNAME'] : [record_type];
     const results = {};
+    const safeDomain = sanitizeShellArg(domain);
 
     for (const rtype of recordTypes) {
       try {
         const output = execSync(
           process.platform === 'win32'
-            ? `nslookup -type=${rtype} ${domain} 2>&1`
-            : `dig ${domain} ${rtype} +short 2>&1`,
+            ? `nslookup -type=${sanitizeShellArg(rtype)} ${safeDomain} 2>&1`
+            : `dig ${safeDomain} ${rtype} +short 2>&1`,
           { encoding: 'utf-8', timeout: 15000 }
         );
         const trimmed = output.trim();
@@ -1145,7 +1302,7 @@ async function executeDnsLookup(input) {
     if (Object.keys(results).length === 0) {
       // Fallback to nslookup
       try {
-        const output = execSync(`nslookup ${domain} 2>&1`, { encoding: 'utf-8', timeout: 10000 });
+        const output = execSync(`nslookup ${safeDomain} 2>&1`, { encoding: 'utf-8', timeout: 10000 });
         return { domain, output: output.slice(0, 2000) };
       } catch {}
       return { domain, error: `No DNS records found for ${domain}` };
@@ -1163,9 +1320,10 @@ async function executeCveSearch(input) {
 
   try {
     const cveLookup = new CVELookup();
-    const results = await cveLookup.lookup(component, version);
+    const response = await cveLookup.lookup(component, version);
+    const results = response?.results || response;
 
-    if (!results || results.length === 0) {
+    if (!results || !Array.isArray(results) || results.length === 0) {
       return { component, version, cves: [], message: `No CVEs found for ${component} ${version}` };
     }
 
@@ -1186,18 +1344,31 @@ async function executeCveSearch(input) {
   }
 }
 
-function executePayloadGen(input) {
-  const { vuln_type, context = '', count = 5 } = input;
+async function executePayloadGen(input) {
+  const { vuln_type, context = '', count = 5, waf_evasion = false } = input;
   if (!vuln_type) return { error: 'Vulnerability type is required (xss, sqli, lfi, ssrf, cmdi, ssti)' };
 
   try {
     const allPayloads = generateDefaultPayloads(vuln_type, count);
     const payloads = allPayloads.slice(0, count);
 
+    // If WAF evasion requested, generate encoded variants for each payload
+    let evasionVariants = [];
+    if (waf_evasion) {
+      const { generateVariants } = await import('./security/waf-evasion.js');
+      const evasionContext = vuln_type === 'lfi' ? 'path' : vuln_type;
+      // Take first payload and generate all variants
+      evasionVariants = generateVariants(payloads[0], evasionContext);
+    }
+
     return {
       vuln_type,
       payloads,
       count: payloads.length,
+      ...(evasionVariants.length > 0 && {
+        waf_evasion_variants: evasionVariants.length,
+        evasion_payloads: evasionVariants.slice(0, 10).map(v => `[${v.name}] ${v.payload}`)
+      }),
       warning: 'Use these payloads only on authorized targets'
     };
   } catch (err) {
@@ -1290,7 +1461,7 @@ async function executeFingerprint(input) {
 
   try {
     const redirectFlag = follow_redirects ? '-L' : '';
-    const curlCmd = `curl -s ${redirectFlag} -i -k --max-time 15 "${url}" 2>&1`;
+    const curlCmd = `curl -s ${redirectFlag} -i -k --max-time 15 ${sanitizeShellArg(url)} 2>&1`;
     const response = execSync(curlCmd, { encoding: 'utf-8', timeout: 20000 });
 
     const headerEnd = response.indexOf('\r\n\r\n');
@@ -1380,19 +1551,24 @@ async function executeSubdomainEnum(input) {
       for (const sub of common) {
         const fqdn = `${sub}.${domain}`;
         try {
-          execSync(
+          const output = execSync(
             process.platform === 'win32'
-              ? `nslookup ${fqdn} 2>&1`
-              : `dig ${fqdn} +short 2>&1`,
+              ? `nslookup ${sanitizeShellArg(fqdn)} 2>&1`
+              : `dig ${sanitizeShellArg(fqdn)} +short 2>&1`,
             { encoding: 'utf-8', timeout: 3000, stdio: 'pipe' }
           );
-          subdomains.push(fqdn);
+          // On Windows, nslookup returns exit 0 even for non-existent domains
+          // Check output for NXDOMAIN or "can't find" indicators
+          const notFound = /NXDOMAIN|can't find|Non-existent domain|server can/i.test(output);
+          if (!notFound && output.trim()) {
+            subdomains.push(fqdn);
+          }
         } catch {}
       }
     } else {
       // Use subfinder if available for larger wordlists
       try {
-        const output = execSync(`subfinder -d ${domain} -silent -timeout 5 2>&1`, { encoding: 'utf-8', timeout: 30000 });
+        const output = execSync(`subfinder -d ${sanitizeShellArg(domain)} -silent -timeout 5 2>&1`, { encoding: 'utf-8', timeout: 30000 });
         subdomains.push(...output.trim().split('\n').filter(Boolean));
       } catch {
         return { domain, error: 'subfinder not installed. Install with: install_tool({ tool: "subfinder" })', subdomains: [] };
@@ -1457,10 +1633,6 @@ async function executeWebFetch(input) {
   const { url, max_length = 8000 } = input;
   if (!url) return { error: 'URL is required' };
 
-  if (url.includes('localhost') || url.includes('127.0.0.1')) {
-    return { error: 'Requests to localhost are blocked by default' };
-  }
-
   try {
     const response = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RedCLI/0.3)' }
@@ -1487,13 +1659,154 @@ async function executeWebFetch(input) {
       ? text.slice(0, max_length) + '\n... (truncated)'
       : text;
 
+    // Auto-run passive security analysis on every fetch
+    let securityFindings = [];
+    try {
+      const { analyzeResponse } = await import('./security/passive-analyzer.js');
+      const headers = {};
+      response.headers.forEach((v, k) => { headers[k] = v; });
+      const analysis = analyzeResponse({ url, statusCode: response.status, headers, body: html });
+      securityFindings = analysis.findings;
+    } catch {}
+
     return {
       url,
       status: response.status,
       content: truncated,
-      length: text.length
+      length: text.length,
+      securityFindings,
+      securitySummary: securityFindings.length > 0
+        ? `⚠️ ${securityFindings.length} security issue(s): ` + securityFindings.slice(0, 3).map(f => `[${f.severity}] ${f.title}`).join(', ')
+        : null
     };
   } catch (err) {
     return { error: `Failed to fetch ${url}: ${err.message}` };
   }
+}
+
+// ─── New Security Tools ───────────────────────────────────────────────
+
+function executePassiveAnalyze(input) {
+  return import('./security/passive-analyzer.js').then(m => {
+    const result = m.analyzeResponse({
+      url: input.url || '',
+      statusCode: input.statusCode || 200,
+      headers: input.headers || {},
+      body: input.body || ''
+    });
+    const count = result.findings.length;
+    if (count === 0) return { output: `✓ No security issues found in response from ${input.url}` };
+    const summary = result.findings.map(f => `[${f.severity.toUpperCase()}] ${f.title}`).join('\n');
+    return { output: `Found ${count} issue(s):\n${summary}`, findings: result.findings };
+  });
+}
+
+function executeCvssScore(input) {
+  return import('./security/cvss4.js').then(m => {
+    if (input.vulnType) {
+      const result = m.scoreFinding(input.vulnType);
+      return { output: `CVSS 4.0: ${result.score} (${result.severity})\nVector: ${result.vector}`, ...result };
+    }
+    const result = m.autoScore({ title: input.title || '', detail: input.detail || '' });
+    return { output: `CVSS 4.0: ${result.score} (${result.severity})\nType: ${result.vulnType}\nVector: ${result.vector}`, ...result };
+  });
+}
+
+function executeJwtAttack(input) {
+  return import('./security/jwt-attacks.js').then(m => {
+    const result = m.attackJwt(input.token, { publicKey: input.publicKey });
+    if (result.error) return { error: result.error };
+    let output = result.summary + '\n\n';
+    for (const attack of result.attacks) {
+      if (attack.vulnerability) {
+        output += `── ${attack.vulnerability} ──\n`;
+        if (attack.results?.length > 0) {
+          for (const r of attack.results) {
+            if (r.forgedToken) output += `  Token: ${r.forgedToken.slice(0, 80)}...\n`;
+            if (r.secret) output += `  🔑 Cracked secret: "${r.secret}"\n`;
+          }
+        } else {
+          output += `  ${attack.description || 'No results'}\n`;
+        }
+        output += '\n';
+      }
+    }
+    return { output, ...result };
+  });
+}
+
+async function executeInteractshListen(input) {
+  const { startOobListener, pollInteractions } = await import('./security/interactsh.js');
+  const session = startOobListener({ server: input.server });
+
+  let output = `🎯 OOB Listener Active: ${session.subdomain}\n\n`;
+  output += `Payloads (inject these into target):\n`;
+  output += `  Log4Shell:  ${session.payloads.log4shell}\n`;
+  output += `  Blind SQLi: ${session.payloads.blind_sqli_mssql}\n`;
+  output += `  Blind CMDi: ${session.payloads.blind_cmdi_linux}\n`;
+  output += `  XXE:        ${session.payloads.xxe_external}\n`;
+  output += `  SSRF:       ${session.payloads.ssrf}\n`;
+
+  if (input.poll) {
+    output += `\n⏳ Polling for callbacks (30s)...\n`;
+    const result = await pollInteractions(session, { timeout: 30000 });
+    if (result.found) {
+      output += `\n🔴 CALLBACK RECEIVED! (${result.interactions.length} interaction(s))\n`;
+      for (const i of result.interactions) {
+        output += `  [${i.type}] from ${i.remoteAddress} at ${i.timestamp}\n`;
+      }
+    } else {
+      output += `\n  No callbacks received in 30s. Inject payloads first, then poll again.`;
+    }
+  }
+
+  return { output, session: { id: session.id, subdomain: session.subdomain, payloads: session.payloads } };
+}
+
+function executeWafEncode(input) {
+  return import('./security/waf-evasion.js').then(m => {
+    const variants = m.generateVariants(input.payload, input.context || 'all');
+    const output = variants.map(v => `[${v.name}] ${v.payload}`).join('\n');
+    return { output: `${variants.length} WAF bypass variants:\n\n${output}`, count: variants.length, variants };
+  });
+}
+
+async function executeActiveScan(input) {
+  const { runProbe, runAllProbes } = await import('./security/probes.js');
+  const { url, param, method, probe } = input;
+
+  if (probe) {
+    const result = await runProbe(probe, { url, param, method });
+    if (result.vulnerable) {
+      return { output: `🔴 VULNERABLE: ${result.probe}\n  Payload: ${result.payload}\n  URL: ${result.url}\n  Evidence: ${(result.evidence || '').slice(0, 200)}`, ...result };
+    }
+    return { output: `✓ Not vulnerable to ${result.probe}`, ...result };
+  }
+
+  const results = await runAllProbes({ url, param, method });
+  if (results.findings.length === 0) {
+    return { output: `✓ No vulnerabilities found (${results.scanned} probes tested on ${url})`, ...results };
+  }
+  const output = `🔴 Found ${results.findings.length} vulnerability(ies):\n\n` +
+    results.findings.map(f => `  [${f.probe}] payload: ${f.payload}\n    evidence: ${(f.evidence || '').slice(0, 100)}`).join('\n\n');
+  return { output, ...results };
+}
+
+async function executeAttackSurface(input) {
+  const { mapAttackSurface } = await import('./security/attack-surface-map.js');
+  const result = await mapAttackSurface(input.url, { depth: input.depth });
+  let output = result.summary + '\n\n';
+  if (result.entryPoints.length > 0) {
+    output += 'Entry points:\n' + result.entryPoints.slice(0, 10).map(ep =>
+      `  ${ep.method} ${ep.url} ${ep.params ? '(' + ep.params.join(', ') + ')' : ''}`
+    ).join('\n');
+  }
+  return { output, ...result };
+}
+
+function executeCorrelateFindings(input) {
+  return import('./security/finding-correlator.js').then(m => {
+    const result = m.correlateFindings(input.findings || []);
+    return { output: result.summary + (result.riskEscalations.length > 0 ? '\n\nEscalations:\n  ' + result.riskEscalations.join('\n  ') : ''), ...result };
+  });
 }

@@ -50,21 +50,38 @@ function ensureConfig() {
     const hasAnthropic = process.env.ANTHROPIC_API_KEY;
     const hasNvidia = process.env.NVIDIA_API_KEY;
     const hasOpenAI = process.env.OPENAI_API_KEY;
+    const hasGemini = process.env.GEMINI_API_KEY;
+    const hasOpenRouter = process.env.OPENROUTER_API_KEY;
+    const hasOpenCode = process.env.OPENCODE_API_KEY;
+    const isWindows = process.platform === 'win32';
 
-    if (!hasAnthropic && !hasNvidia && !hasOpenAI) {
-      console.error('Error: No API key found.');
-      console.error('\n--- Set up your API key ---');
-      console.error('Option 1: Environment variables');
-      console.error('  $env:ANTHROPIC_API_KEY = "sk-ant-..."');
-      console.error('  $env:NVIDIA_API_KEY = "nvapi-..."');
-      console.error('  $env:OPENAI_API_KEY = "sk-..."');
+    if (!hasAnthropic && !hasNvidia && !hasOpenAI && !hasGemini && !hasOpenRouter && !hasOpenCode) {
+      console.error('Error: No API key found.\n');
+      console.error('--- Set up your API key ---');
+      console.error('\nOption 1: Environment variables');
+      if (isWindows) {
+        console.error('  $env:ANTHROPIC_API_KEY = "sk-ant-..."');
+        console.error('  $env:OPENAI_API_KEY = "sk-..."');
+        console.error('  $env:GEMINI_API_KEY = "AI..."');
+      } else {
+        console.error('  export ANTHROPIC_API_KEY="sk-ant-..."');
+        console.error('  export OPENAI_API_KEY="sk-..."');
+        console.error('  export GEMINI_API_KEY="AI..."');
+      }
 
       console.error('\nOption 2: Config file');
       console.error(`  Edit: ${join(getConfigDir(), 'config.json')}`);
+
+      console.error('\nOption 3: Local (no key needed)');
+      console.error('  Install Ollama: https://ollama.com');
+      console.error('  Then set provider: red config set provider ollama');
+
       console.error('\nGet keys from:');
       console.error('  Anthropic: https://console.anthropic.com/');
-      console.error('  NVIDIA: https://build.nvidia.com/');
-      console.error('  OpenAI: https://platform.openai.com/');
+      console.error('  OpenAI:    https://platform.openai.com/');
+      console.error('  Gemini:    https://aistudio.google.com/');
+      console.error('  NVIDIA:    https://build.nvidia.com/');
+      console.error('\nOr run: red doctor --fix');
       process.exit(1);
     }
   }
@@ -503,13 +520,13 @@ async function main() {
   const { flags, positional } = parseArgs(args);
 
   if (flags.version) {
-    console.log('Red CLI v0.3.0');
+    console.log('Red CLI v0.4.2');
     return;
   }
 
   if (flags.help || flags.h) {
     console.log(`
-Red CLI v0.3.0 - Agentic AI Coding Assistant
+Red CLI v0.4.2 - Autonomous Red Team Platform
 
 Usage: red [options] [message]
 
@@ -521,6 +538,8 @@ Options:
   --provider <name>      Set provider
   --no-tools             Disable tools (chat only)
   --auto                 Run in autonomous mode
+  --continue, -c         Resume most recent session
+  --resume [name], -r    Resume a named session or open picker
   --test-redteam         Run Red Team full regression tests
   --max-iter <n>         Max iterations for auto mode (default: 50)
 
@@ -593,6 +612,8 @@ if (flags['test-redteam']) {
   const maxIterations = flags.maxIter || flags['max-iter'];
   if (maxIterations) cliFlags.maxIterations = parseInt(maxIterations, 10);
   if (flags.auto) cliFlags.autoMode = true;
+  if (flags.continue || flags.c) cliFlags._continueSession = true;
+  if (flags.resume || flags.r) cliFlags._resumeSession = flags.resume || flags.r || true;
 
   const baseConfig = ensureConfig();
   const config = { ...baseConfig, ...cliFlags };

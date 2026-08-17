@@ -127,10 +127,16 @@ export class SessionSelector {
             resolve(selected);
             return;
           case 'escape':
-          case 'ctrl_c':
             this.cleanup();
             resolve(null);
             return;
+          case 'c':
+            if (key.ctrl) {
+              this.cleanup();
+              resolve(null);
+              return;
+            }
+            break;
           default:
             // Number keys for quick selection (1-9)
             if (char && char >= '1' && char <= '9') {

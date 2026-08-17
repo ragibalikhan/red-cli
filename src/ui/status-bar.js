@@ -36,7 +36,6 @@ export class StatusBar {
     parts.push(chalk.dim(this.model));
     parts.push(chalk.dim(`${this.mode} mode`));
 
-    const tokenPercent = Math.round((this.tokens.used / this.tokens.max) * 100);
     parts.push(chalk.dim(`${this.tokens.used}/${this.tokens.max} tokens`));
 
     if (this.thinking) {
@@ -51,8 +50,11 @@ export class StatusBar {
 
     const bar = parts.join(chalk.dim(' │ '));
 
-    // Pad to full width
-    const padded = bar.padEnd(maxWidth);
+    // Strip ANSI codes to calculate visible length for padding
+    const stripped = bar.replace(/\x1b\[[0-9;]*m/g, '');
+    const visibleLength = stripped.length;
+    const padding = Math.max(0, maxWidth - visibleLength);
+    const padded = bar + ' '.repeat(padding);
 
     return chalk.bgBlack.white(padded);
   }

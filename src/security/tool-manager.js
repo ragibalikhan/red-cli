@@ -36,6 +36,14 @@ const TOOL_DEFINITIONS = {
     choco: 'nmap',
     npm: null
   },
+  masscan: {
+    name: 'masscan',
+    desc: 'Fast port scanner (10M pps)',
+    apt: 'masscan',
+    brew: 'masscan',
+    choco: null,
+    npm: null
+  },
   whatweb: {
     name: 'whatweb',
     desc: 'Web technology detector',
@@ -44,14 +52,41 @@ const TOOL_DEFINITIONS = {
     choco: null,
     npm: null
   },
+  httpx: {
+    name: 'httpx',
+    desc: 'HTTP probe tool',
+    apt: null,
+    brew: null,
+    choco: null,
+    npm: null,
+    goInstall: 'go install github.com/projectdiscovery/httpx/cmd/httpx@latest'
+  },
+  subfinder: {
+    name: 'subfinder',
+    desc: 'Passive subdomain enumerator',
+    apt: null,
+    brew: null,
+    choco: null,
+    npm: null,
+    goInstall: 'go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest'
+  },
+  amass: {
+    name: 'amass',
+    desc: 'Deep subdomain enumeration',
+    apt: null,
+    brew: 'amass',
+    choco: null,
+    npm: null,
+    goInstall: 'go install github.com/owasp-amass/amass/v4/...@master'
+  },
   ffuf: {
     name: 'ffuf',
     desc: 'Web directory fuzzer',
-    apt: null, // needs go or manual install
+    apt: null,
     brew: 'ffuf',
     choco: null,
     npm: null,
-    goInstall: 'go install github.com/ffuf/ffuf@latest'
+    goInstall: 'go install github.com/ffuf/ffuf/v2@latest'
   },
   dirb: {
     name: 'dirb',
@@ -78,6 +113,15 @@ const TOOL_DEFINITIONS = {
     choco: null,
     npm: null
   },
+  nuclei: {
+    name: 'nuclei',
+    desc: 'Template-based vulnerability scanner',
+    apt: null,
+    brew: null,
+    choco: null,
+    npm: null,
+    goInstall: 'go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest'
+  },
 
   // Exploitation tools
   sqlmap: {
@@ -96,6 +140,14 @@ const TOOL_DEFINITIONS = {
     choco: null,
     npm: null
   },
+  wpscan: {
+    name: 'wpscan',
+    desc: 'WordPress vulnerability scanner',
+    apt: null,
+    brew: 'wpscan',
+    choco: null,
+    npm: null
+  },
   'redis-cli': {
     name: 'redis-cli',
     desc: 'Redis client',
@@ -103,6 +155,22 @@ const TOOL_DEFINITIONS = {
     brew: null,
     choco: null,
     npm: null
+  },
+  whois: {
+    name: 'whois',
+    desc: 'Domain/IP WHOIS lookup',
+    apt: 'whois',
+    brew: 'whois',
+    choco: 'whois',
+    npm: null
+  },
+  traceroute: {
+    name: 'traceroute',
+    desc: 'Network path analysis',
+    apt: null,
+    brew: null,
+    choco: null,
+    npm: null // built-in on most systems
   },
 
   // Network tools
