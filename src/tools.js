@@ -568,13 +568,11 @@ export async function executeTool(toolName, toolInput, options = {}) {
         // Auto-start session for first security tool call
         const session = startSession(toolInput?.target || toolInput?.domain || '');
         sessionId = session.id;
-        console.error(`[evidence] Auto-started session: ${sessionId}`);
       }
       const record = recordToolCall(toolName, toolInput, result, Date.now() - startTime);
-      console.error(`[evidence] Recorded tool call: ${toolName} -> ${record ? 'OK' : 'FAILED'}`);
     }
   } catch (err) {
-    console.error(`[evidence] Error recording tool call: ${err.message}`);
+    console.error(`[evidence] Error: ${err.message}`);
   }
 
   return result;

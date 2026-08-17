@@ -13,6 +13,7 @@ import { createQueue } from './queue.js';
 import { CheckpointManager } from './checkpoint.js';
 import { ProjectContext } from './context.js';
 import { createMemory } from './memory.js';
+import { getActiveSessionId as getEvidenceSessionId, endSession as endEvidenceSession, generateReport as generateEvidenceReport, listSessions as listEvidenceSessions, startSession as startEvidenceSession } from './security/evidence-collector.js';
 import { runDoctor } from './doctor.js';
 import { createAnalytics } from './analytics.js';
 import { createDiffReview } from './diff-review.js';
@@ -211,13 +212,15 @@ export async function startRepl(cfg) {
         debugLog('auto-save failed:', err.message);
       }
     }
-    // End evidence session if active (async but fire-and-forget)
-    import('./security/evidence-collector.js').then(({ getActiveSessionId, endSession }) => {
-      if (getActiveSessionId()) {
-        endSession();
+    // End evidence session synchronously (import is eager now)
+    try {
+      if (getEvidenceSessionId()) {
+        endEvidenceSession();
         debugLog('evidence session ended');
       }
-    }).catch(() => {});
+    } catch (err) {
+      debugLog('evidence end failed:', err.message);
+    }
   }
 
   function periodicAutoSave() {
@@ -776,7 +779,7 @@ async function handleCommand(cmd) {
         console.log(chalk.dim('Example: /pentest https://pentest-ground.com:4280/'));
         break;
       }
-      console.log(chalk.red(`\n⚠️  Starting autonomous pentest on: ${target}`));
+      console.log(chalk.red(`\n  Starting autonomous pentest on: ${target}`));
       console.log(chalk.dim('This will run recon, scan, and attempt exploitation automatically.\n'));
 
       const { createSecurityEngine } = await import('./security/index.js');
@@ -785,12 +788,14 @@ async function handleCommand(cmd) {
 
       try {
         const result = await runAutonomousPentest(agent, engine, target, { maxIterations: 30 });
-        console.log(chalk.green(`\n✅ Pentest complete! Found ${result.findings.length} findings.`));
+        console.log(chalk.green(`\n  Pentest complete! Found ${result.findings.length} findings.`));
         console.log(chalk.green(`  Report: ${result.reportPath}`));
+        const sessionId = getEvidenceSessionId();
+        if (sessionId) console.log(chalk.dim(`  Evidence session: ${sessionId}`));
         // Inject findings into AI context for follow-up questions
         injectSecurityContext(agent, result.findings, target, 'autonomous-pentest');
       } catch (err) {
-        console.log(chalk.red(`Pentest error: ${err.message}`));
+        console.log(chalk.red(`  Pentest error: ${err.message}`));
       }
       break;
     }
@@ -1012,24 +1017,23 @@ async function handleCommand(cmd) {
     // /collect-evidence [sessionId]
     case '/collect-evidence':
     case '/evidence': {
-      const { generateReport, getActiveSessionId, startSession, listSessions } = await import('./security/evidence-collector.js');
-      let sessionId = args.trim() || getActiveSessionId();
+      let sessionId = args.trim() || getEvidenceSessionId();
       if (!sessionId) {
         // Try to use the most recent session
-        const sessions = listSessions();
+        const sessions = listEvidenceSessions();
         if (sessions.length > 0 && sessions[0].status !== 'unknown') {
           sessionId = sessions[0].id;
           console.log(chalk.dim(`\n  Using most recent session: ${sessionId}`));
         } else {
           console.log(chalk.yellow('\n  No active session. Starting a new one...'));
-          const session = startSession();
+          const session = startEvidenceSession();
           sessionId = session.id;
           console.log(chalk.green(`  Session: ${sessionId}`));
         }
       }
-      const report = generateReport(sessionId);
+      const report = generateEvidenceReport(sessionId);
       if (report) {
-        console.log(chalk.green(`\n📋 Evidence Report Generated`));
+        console.log(chalk.green(`\n  Evidence Report Generated`));
         console.log(chalk.dim(`   Session: ${sessionId}`));
         console.log(chalk.dim(`   Findings: ${report.findings.length}`));
         console.log(chalk.dim(`   Tool calls: ${report.toolCalls.length}`));
@@ -1044,17 +1048,16 @@ async function handleCommand(cmd) {
 
     // /sessions
     case '/sessions': {
-      const { listSessions } = await import('./security/evidence-collector.js');
-      const sessions = listSessions();
+      const sessions = listEvidenceSessions();
       if (sessions.length === 0) {
         console.log(chalk.dim('\n  No evidence sessions found.'));
       } else {
-        console.log(chalk.cyan(`\n📁 Evidence Sessions (${sessions.length})\n`));
+        console.log(chalk.cyan(`\n  Evidence Sessions (${sessions.length})\n`));
         for (const s of sessions) {
-          const status = s.status === 'completed' ? chalk.green('✅') : chalk.yellow('🔄');
+          const status = s.status === 'completed' ? chalk.green('done') : chalk.yellow('active');
           const findings = s.findings?.length || 0;
           const tools = s.toolCalls?.length || 0;
-          console.log(`  ${status} ${s.id}`);
+          console.log(`  [${status}] ${s.id}`);
           console.log(chalk.dim(`     Target: ${s.target || 'N/A'} | Tools: ${tools} | Findings: ${findings} | ${s.startedAt || ''}`));
         }
       }
@@ -1339,10 +1342,16 @@ async function handleCommand(cmd) {
       if (args) {
         const { createSecurityEngine } = await import('./security/index.js');
         const engine = await createSecurityEngine();
-        console.log(chalk.red(`\n🔍 Running vulnerability scan on: ${args}`));
-        const results = await engine.runVulnScan(args);
-        console.log(chalk.green(`\n✅ Scan complete: ${results.findings.length} findings`));
-        injectSecurityContext(agent, results.findings, args, 'vulnerability-scan');
+        console.log(chalk.red(`\n  Running vulnerability scan on: ${args}`));
+        try {
+          const results = await engine.runVulnScan(args);
+          console.log(chalk.green(`\n  Scan complete: ${results.findings.length} findings`));
+          const sessionId = getEvidenceSessionId();
+          if (sessionId) console.log(chalk.dim(`  Evidence session: ${sessionId}`));
+          injectSecurityContext(agent, results.findings, args, 'vulnerability-scan');
+        } catch (err) {
+          console.log(chalk.red(`  Scan error: ${err.message}`));
+        }
       }
       break;
     }
@@ -1352,10 +1361,16 @@ async function handleCommand(cmd) {
       if (args) {
         const { createSecurityEngine } = await import('./security/index.js');
         const engine = await createSecurityEngine();
-        console.log(chalk.red(`\n🔍 Running reconnaissance on: ${args}`));
-        const results = await engine.runRecon(args, { passive: true });
-        console.log(chalk.green(`\n✅ Recon complete: ${results.findings.length} findings`));
-        injectSecurityContext(agent, results.findings, args, 'reconnaissance');
+        console.log(chalk.red(`\n  Running reconnaissance on: ${args}`));
+        try {
+          const results = await engine.runRecon(args, { passive: true });
+          console.log(chalk.green(`\n  Recon complete: ${results.findings.length} findings`));
+          const sessionId = getEvidenceSessionId();
+          if (sessionId) console.log(chalk.dim(`  Evidence session: ${sessionId}`));
+          injectSecurityContext(agent, results.findings, args, 'reconnaissance');
+        } catch (err) {
+          console.log(chalk.red(`  Recon error: ${err.message}`));
+        }
       }
       break;
     }
@@ -1365,10 +1380,16 @@ async function handleCommand(cmd) {
       if (args) {
         const { createSecurityEngine } = await import('./security/index.js');
         const engine = await createSecurityEngine();
-        console.log(chalk.red(`\n🌐 Running OSINT on: ${args}`));
-        const results = await engine.runRecon(args, { passive: true });
-        console.log(chalk.green(`\n✅ OSINT complete: ${results.findings.length} findings`));
-        injectSecurityContext(agent, results.findings, args, 'osint');
+        console.log(chalk.red(`\n  Running OSINT on: ${args}`));
+        try {
+          const results = await engine.runRecon(args, { passive: true });
+          console.log(chalk.green(`\n  OSINT complete: ${results.findings.length} findings`));
+          const sessionId = getEvidenceSessionId();
+          if (sessionId) console.log(chalk.dim(`  Evidence session: ${sessionId}`));
+          injectSecurityContext(agent, results.findings, args, 'osint');
+        } catch (err) {
+          console.log(chalk.red(`  OSINT error: ${err.message}`));
+        }
       }
       break;
     }

@@ -48,7 +48,8 @@ export class SecurityEngine {
   // Evidence collection helpers
   _ensureEvidenceSession(target) {
     if (!getActiveSessionId()) {
-      startSession(target);
+      const session = startSession(target);
+      console.log(chalk.dim(`  [evidence] Session started: ${session.id}`));
     }
   }
 
@@ -111,13 +112,13 @@ ${this.renderToolsStatus()}                                                     
   }
 
   async runRecon(target, options = {}) {
+    // Ensure evidence session BEFORE scope check (so session is always created)
+    this._ensureEvidenceSession(target);
+    const startTime = Date.now();
+
     this.scope.assertAllowed(target, options.active ? 'active reconnaissance' : 'reconnaissance');
     this.sessionData.target = target;
     this.sessionData.startTime = new Date();
-
-    // Ensure evidence session is active
-    this._ensureEvidenceSession(target);
-    const startTime = Date.now();
 
     this.recon = new ReconEngine(this.toolsRegistry, this.platform);
     const results = await this.recon.run(target, options);
@@ -135,11 +136,11 @@ ${this.renderToolsStatus()}                                                     
   }
 
   async runVulnScan(target, options = {}) {
-    this.scope.assertAllowed(target, 'vulnerability scan');
-
-    // Ensure evidence session is active
+    // Ensure evidence session BEFORE scope check
     this._ensureEvidenceSession(target);
     const startTime = Date.now();
+
+    this.scope.assertAllowed(target, 'vulnerability scan');
 
     this.scanner = new VulnerabilityScanner(this.toolsRegistry, this.platform);
     const results = await this.scanner.scan(target, options);
@@ -390,13 +391,13 @@ ${this.renderToolsStatus()}                                                     
   }
 
   async runPentest(target, profile = 'web') {
+    // Ensure evidence session BEFORE scope check
+    this._ensureEvidenceSession(target);
+    const startTime = Date.now();
+
     this.scope.assertAllowed(target, 'penetration test');
     this.sessionData.target = target;
     this.sessionData.startTime = new Date();
-
-    // Ensure evidence session is active
-    this._ensureEvidenceSession(target);
-    const startTime = Date.now();
 
     this.pentest = new PentestOrchestrator(
       this.recon,
@@ -424,11 +425,12 @@ ${this.renderToolsStatus()}                                                     
     if (!target) {
       throw new Error('No target specified. Set target first or pass in options.');
     }
-    this.scope.assertAllowed(target, 'autonomous penetration test');
 
-    // Ensure evidence session is active
+    // Ensure evidence session BEFORE scope check
     this._ensureEvidenceSession(target);
     const startTime = Date.now();
+
+    this.scope.assertAllowed(target, 'autonomous penetration test');
 
     this.sessionData.startTime = new Date();
 
