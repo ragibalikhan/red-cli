@@ -19,6 +19,7 @@ import { interpretToolOutput } from './interpreter.js';
 import { parseExploitOutput, formatExploitResult } from './exploit-parser.js';
 import * as ToolManager from './tool-manager.js';
 import { SecurityScope } from './scope.js';
+import { startSession, getActiveSessionId, recordToolCall, addFinding, endSession } from './evidence-collector.js';
 
 export class SecurityEngine {
   constructor(config = {}) {
@@ -42,6 +43,29 @@ export class SecurityEngine {
       startTime: null,
       endTime: null
     };
+  }
+
+  // Evidence collection helpers
+  _ensureEvidenceSession(target) {
+    if (!getActiveSessionId()) {
+      startSession(target);
+    }
+  }
+
+  _recordEvidence(toolName, input, output, duration = 0) {
+    try {
+      recordToolCall(toolName, input, output, duration);
+    } catch (err) {
+      console.error(`[evidence] Failed to record: ${err.message}`);
+    }
+  }
+
+  _recordFinding(finding) {
+    try {
+      addFinding(finding);
+    } catch (err) {
+      console.error(`[evidence] Failed to record finding: ${err.message}`);
+    }
   }
 
   async initialize() {
@@ -91,8 +115,18 @@ ${this.renderToolsStatus()}                                                     
     this.sessionData.target = target;
     this.sessionData.startTime = new Date();
 
+    // Ensure evidence session is active
+    this._ensureEvidenceSession(target);
+    const startTime = Date.now();
+
     this.recon = new ReconEngine(this.toolsRegistry, this.platform);
     const results = await this.recon.run(target, options);
+
+    // Record evidence
+    this._recordEvidence('recon', { target, options }, results, Date.now() - startTime);
+    for (const finding of results.findings) {
+      this._recordFinding({ ...finding, tool: 'recon' });
+    }
 
     this.sessionData.findings.push(...results.findings);
     this.sessionData.toolsResults.recon = results;
@@ -102,8 +136,19 @@ ${this.renderToolsStatus()}                                                     
 
   async runVulnScan(target, options = {}) {
     this.scope.assertAllowed(target, 'vulnerability scan');
+
+    // Ensure evidence session is active
+    this._ensureEvidenceSession(target);
+    const startTime = Date.now();
+
     this.scanner = new VulnerabilityScanner(this.toolsRegistry, this.platform);
     const results = await this.scanner.scan(target, options);
+
+    // Record evidence
+    this._recordEvidence('vuln_scan', { target, options }, results, Date.now() - startTime);
+    for (const finding of (results.findings || [])) {
+      this._recordFinding({ ...finding, tool: 'vuln_scan' });
+    }
 
     // Save findings to memory
     if (results.findings && results.findings.length > 0) {
@@ -349,6 +394,10 @@ ${this.renderToolsStatus()}                                                     
     this.sessionData.target = target;
     this.sessionData.startTime = new Date();
 
+    // Ensure evidence session is active
+    this._ensureEvidenceSession(target);
+    const startTime = Date.now();
+
     this.pentest = new PentestOrchestrator(
       this.recon,
       this.scanner,
@@ -357,6 +406,13 @@ ${this.renderToolsStatus()}                                                     
     );
 
     const results = await this.pentest.run(target, profile);
+
+    // Record evidence
+    this._recordEvidence('pentest', { target, profile }, results, Date.now() - startTime);
+    for (const finding of (results.findings || [])) {
+      this._recordFinding({ ...finding, tool: 'pentest' });
+    }
+
     this.sessionData.findings.push(...results.findings);
     this.sessionData.toolsResults.pentest = results;
 
@@ -369,6 +425,10 @@ ${this.renderToolsStatus()}                                                     
       throw new Error('No target specified. Set target first or pass in options.');
     }
     this.scope.assertAllowed(target, 'autonomous penetration test');
+
+    // Ensure evidence session is active
+    this._ensureEvidenceSession(target);
+    const startTime = Date.now();
 
     this.sessionData.startTime = new Date();
 
@@ -441,6 +501,17 @@ ${this.renderToolsStatus()}                                                     
     this.sessionData.findings = allFindings;
     this.sessionData.target = target;
     this.sessionData.endTime = new Date();
+
+    // Record all findings as evidence
+    for (const finding of allFindings) {
+      this._recordFinding({ ...finding, tool: 'autonomous_pentest' });
+    }
+    this._recordEvidence('autonomous_pentest', { target, options }, {
+      iterations: iteration,
+      findings: allFindings.length,
+      critical: allFindings.filter(f => f.severity === 'critical').length,
+      high: allFindings.filter(f => f.severity === 'high').length
+    }, Date.now() - startTime);
 
     const reportPath = this.generateReport('md');
 

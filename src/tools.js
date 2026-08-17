@@ -566,12 +566,16 @@ export async function executeTool(toolName, toolInput, options = {}) {
       let sessionId = getActiveSessionId();
       if (!sessionId) {
         // Auto-start session for first security tool call
-        const session = startSession(toolInput?.target || '');
+        const session = startSession(toolInput?.target || toolInput?.domain || '');
         sessionId = session.id;
+        console.error(`[evidence] Auto-started session: ${sessionId}`);
       }
-      recordToolCall(toolName, toolInput, result, Date.now() - startTime);
+      const record = recordToolCall(toolName, toolInput, result, Date.now() - startTime);
+      console.error(`[evidence] Recorded tool call: ${toolName} -> ${record ? 'OK' : 'FAILED'}`);
     }
-  } catch {}
+  } catch (err) {
+    console.error(`[evidence] Error recording tool call: ${err.message}`);
+  }
 
   return result;
 }
