@@ -126,6 +126,33 @@ function parseXmlToolCalls(text) {
   }
   if (results.length > 0) return results;
 
+  // Handle broken XML from models like minimax: <invoke name="bash"> <command":...
+  const brokenInvokeRegex = /<invoke\s+name\s*=\s*["']?(\w+)["']?\s*>/gi;
+  let biMatch;
+  while ((biMatch = brokenInvokeRegex.exec(text)) !== null) {
+    const name = biMatch[1];
+    const afterInvoke = text.slice(biMatch.index + biMatch[0].length);
+    // Look for <command"> or <command>: or <command> or <command=...> or bare <command" patterns
+    const cmdRegex = /<command["':=]?(?:>)?\s*([\s\S]*?)(?:<\/command>|<\/invoke>|$)/gi;
+    let cm;
+    while ((cm = cmdRegex.exec(afterInvoke)) !== null) {
+      let cmdContent = cm[1].trim();
+      // Clean up leading junk like ":curl" -> "curl"
+      cmdContent = cmdContent.replace(/^[:'"]+/, '').trim();
+      // Clean up trailing junk like "]<]" 
+      cmdContent = cmdContent.replace(/[\]<>\[\]]+$/, '').trim();
+      if (cmdContent.length > 0) {
+        results.push({
+          id: `${TOOL_CALL_ID_PREFIX}_${Date.now()}_${results.length}`,
+          name,
+          input: name === 'bash' ? { command: cmdContent } : { input: cmdContent }
+        });
+      }
+    }
+  }
+  if (results.length > 0) return results;
+
+  // Handle standalone tool_name + content pattern
   const standaloneRegex = /(?:^|\n)\s*(\w[\w_]*)\s*\n((?:<parameter=\w+>[\s\S]*?(?:<\/parameter>|(?=<parameter=\w+>)|$))+)/gi;
   let sm;
   while ((sm = standaloneRegex.exec(text)) !== null) {
@@ -166,7 +193,9 @@ export function hasToolCallPatterns(text) {
   return /<function=\w+>/i.test(text)
     || /<parameter=\w+>/i.test(text)
     || /"tool_calls"\s*:/i.test(text)
-    || /"name"\s*:\s*"[a-z_]+"/i.test(text);
+    || /"name"\s*:\s*"[a-z_]+"/i.test(text)
+    || /<invoke\s+name\s*=/i.test(text)
+    || /<command["'=]?>/i.test(text);
 }
 
 export function getTextToolCallPrompt() {
