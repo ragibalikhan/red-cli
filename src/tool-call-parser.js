@@ -152,6 +152,34 @@ function parseXmlToolCalls(text) {
   }
   if (results.length > 0) return results;
 
+  // Handle broken hybrid XML/JSON: <invoke_name":"web_fetch","input":{"url":"..."}}>
+  // Simple regex: match <invoke_name":"toolname"..."input":{json}}
+  const hybridInvokeRegex = /<invoke[_\s]?name['"=:]+"(\w+)"[^}]*"input"[^}]*({[^}]*\}\})/gi;
+  let hiMatch;
+  while ((hiMatch = hybridInvokeRegex.exec(text)) !== null) {
+    const name = hiMatch[1];
+    let inputStr = hiMatch[2];
+    // Try to parse the JSON input, handling extra closing braces
+    let input = {};
+    try {
+      input = JSON.parse(inputStr);
+    } catch {
+      // Try trimming trailing } braces and retry
+      const trimmed = inputStr.replace(/}+$/, (m) => m.slice(0, -1));
+      try { input = JSON.parse(trimmed); } catch {
+        input = { raw: inputStr };
+      }
+    }
+    if (name && typeof name === 'string') {
+      results.push({
+        id: `${TOOL_CALL_ID_PREFIX}_${Date.now()}_${results.length}`,
+        name,
+        input: typeof input === 'object' && input !== null ? input : { input: inputStr }
+      });
+    }
+  }
+  if (results.length > 0) return results;
+
   // Handle standalone tool_name + content pattern
   const standaloneRegex = /(?:^|\n)\s*(\w[\w_]*)\s*\n((?:<parameter=\w+>[\s\S]*?(?:<\/parameter>|(?=<parameter=\w+>)|$))+)/gi;
   let sm;
@@ -195,7 +223,8 @@ export function hasToolCallPatterns(text) {
     || /"tool_calls"\s*:/i.test(text)
     || /"name"\s*:\s*"[a-z_]+"/i.test(text)
     || /<invoke\s+name\s*=/i.test(text)
-    || /<command["'=]?>/i.test(text);
+    || /<command["'=]?>/i.test(text)
+    || /<invoke[_\s]?(?:name|Name)\s*["'=:]+/i.test(text);
 }
 
 export function getTextToolCallPrompt() {
